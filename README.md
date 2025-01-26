@@ -1,14 +1,12 @@
 # Technical Learning Notes
 
-Welcome to my Technical Learning Notes Repository! This repository is dedicated to documenting my journey of learning and exploring various technical topics, including implementing Lisp in C**, **introduction of recursion, and more. My goal is to share insights, track my progress, and contribute to the community by providing useful resources for like-minded individuals. **The main contents are written in Mandarin.**
+Welcome to my Technical Learning Notes Repository! This repository is dedicated to documenting my journey of learning and exploring various technical topics, including implementing Lisp in C, introduction of recursion, and more. My goal is to share insights, track my progress, and contribute to the community by providing useful resources for like-minded individuals. **The main contents are written in Mandarin.**
 
 ---
 
 ## 📚 Overview of Learning Topics
 
 
-
----
 
 ## 🌟 Why This Repository?
 
