@@ -498,3 +498,374 @@ typedef struct lval {
 S-Expression 是 Lisp 的核心特性之一，基于递归的结构，能够简单而优雅地表示代码和数据。在实现一个 Lisp 解释器时，理解和构建 S-Expression 是关键的一步。无论是在学习 Lisp 编程，还是设计自己的语言，实现 S-Expression 都是一个不可忽视的基础。
 
 通过学习 S-Expression，不仅能够理解 Lisp 的设计理念，还能掌握递归思维和语言设计的核心思想。
+
+
+
+
+
+具体代码链接：[https://github.com/orangeduck/BuildYourOwnLisp/blob/master/src/s_expressions.c](https://github.com/orangeduck/BuildYourOwnLisp/blob/master/src/s_expressions.c)
+
+```c
+lval* lval_read_num(mpc_ast_t* t) {
+  errno = 0;
+  long x = strtol(t->contents, NULL, 10);
+  return errno != ERANGE ?
+    lval_num(x) : lval_err("invalid number");
+}
+```
+
+
+
+```c
+lval* lval_read(mpc_ast_t* t) {
+
+  /* If Symbol or Number return conversion to that type */
+  if (strstr(t->tag, "number")) { return lval_read_num(t); }
+  if (strstr(t->tag, "symbol")) { return lval_sym(t->contents); }
+
+  /* If root (>) or sexpr then create empty list */
+  lval* x = NULL;
+  if (strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
+  if (strstr(t->tag, "sexpr"))  { x = lval_sexpr(); }
+
+  /* Fill this list with any valid expression contained within */
+  for (int i = 0; i < t->children_num; i++) {
+    if (strcmp(t->children[i]->contents, "(") == 0) { continue; }
+    if (strcmp(t->children[i]->contents, ")") == 0) { continue; }
+    if (strcmp(t->children[i]->tag,  "regex") == 0) { continue; }
+    x = lval_add(x, lval_read(t->children[i]));
+  }
+
+  return x;
+}
+```
+
+
+
+
+
+```c
+lval* lval_add(lval* v, lval* x) {
+  v->count++;
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+  v->cell[v->count-1] = x;
+  return v;
+}
+```
+
+
+
+代码中 `v->cell[v->count-1] = x;` 的关键在于 **数组索引与元素个数的关系**。我们逐步分析代码为什么要使用 `v->count - 1`。
+
+------
+
+### **数组与索引的基本关系**
+
+在 C 中，数组的索引从 **0 开始**，这意味着：
+
+- 如果数组有 1 个元素，则该元素的索引是 `0`；
+- 如果数组有 2 个元素，索引是 `0` 和 `1`；
+- 如果数组有 `n` 个元素，索引是 `0` 到 `n-1`。
+
+因此，访问数组最后一个元素的索引是 `count - 1`。
+
+------
+
+### **代码功能分析**
+
+#### **代码片段**
+
+```c
+lval* lval_add(lval* v, lval* x) {
+  v->count++;  // 增加表达式列表中的元素计数
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);  // 重新分配存储空间
+  v->cell[v->count-1] = x;  // 将新元素添加到最后一个位置
+  return v;
+}
+```
+
+#### **代码逻辑解析**
+
+1. **`v->count++`**：
+
+   - `v->count` 表示列表中的元素个数。
+   - 调用 `lval_add` 时，我们新增了一个元素，因此需要将计数加 1。
+
+2. **`v->cell = realloc(...)`**：
+
+   - 使用 `realloc` 为 `v->cell` 分配更多的内存空间，以便存储新增的元素。
+   - 新分配的数组大小是 `sizeof(lval*) * v->count`，确保能容纳所有元素。
+
+3. **`v->cell[v->count-1] = x;`**：
+
+   - 为什么是 `v->count - 1`
+
+     ：
+
+     - 新增一个元素后，数组的最后一个位置正好是新增的那一项，而它的索引是 `count - 1`。
+     - 如果直接用 `v->count`，会超出数组的有效范围，导致非法内存访问。
+
+------
+
+### **例子说明**
+
+假设 `v->count` 初始值为 2，`v->cell` 中已经有两个元素，分别存储在索引 `0` 和 `1`。
+
+#### **调用 `lval_add`**
+
+- **执行 `v->count++`**：
+  - `v->count` 从 2 增加到 3，表示数组现在需要存储 3 个元素。
+- **执行 `realloc`**：
+  - `v->cell` 被重新分配空间，大小足够存储 3 个元素。
+- **执行 `v->cell[v->count-1] = x`**：
+  - 现在 `v->count = 3`，所以新增元素的索引是 `v->count - 1 = 2`。
+  - 将新元素 `x` 存储在索引 `2` 的位置。
+
+------
+
+### **如果没有 `-1` 会发生什么？**
+
+如果直接写成 `v->cell[v->count] = x;`，问题是：
+
+1. 数组的索引是从 0 到 `count - 1`，`v->count` 超出有效范围。
+2. 访问 `v->cell[v->count]` 会导致 **非法内存访问**，程序崩溃。
+
+------
+
+### **总结**
+
+- **`v->count` 表示数组的元素总数**。
+- **`v->count - 1` 是新增元素的位置索引**，因为数组索引从 0 开始。
+- 使用 `v->cell[v->count-1] = x;` 可以确保新元素正确存储在最后一个位置。
+
+
+
+解释代码：
+
+```c
+lval* lval_pop(lval* v, int i) {
+  /* Find the item at "i" */
+  lval* x = v->cell[i];
+
+  /* Shift memory after the item at "i" over the top */
+  memmove(&v->cell[i], &v->cell[i+1],
+    sizeof(lval*) * (v->count-i-1));
+
+  /* Decrease the count of items in the list */
+  v->count--;
+
+  /* Reallocate the memory used */
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+  return x;
+}
+```
+
+### **1. `memmove` 的作用**
+
+这段代码的核心是 `memmove` 的操作，它用于将内存块从一个位置移动到另一个位置。
+
+#### **代码片段**
+
+```c
+memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count - i - 1));
+```
+
+#### **解释**
+
+- **`&v->cell[i]`**：目标地址，从索引 `i` 开始的位置。
+- **`&v->cell[i+1]`**：源地址，从索引 `i+1` 开始的位置。
+- **`sizeof(lval*) * (v->count - i - 1)`**：要移动的内存大小，表示从 `i+1` 到 `v->count-1` 的所有元素。
+
+#### **具体作用**
+
+1. 将从索引 `i+1` 开始的所有元素，向前移动一个位置，覆盖索引 `i` 处的内容。
+2. 目的是移除第 `i` 个元素，同时保持数组的连续性。
+
+------
+
+### **示例**
+
+假设我们有一个 `lval` 的数组 `v->cell`，如下：
+
+```c
+v->cell = [A, B, C, D];
+v->count = 4;
+```
+
+#### **执行 `lval_pop(v, 1)`**
+
+即移除索引 `1` 的元素（`B`），具体过程如下：
+
+1. **找到 `B`**：
+
+   ```c
+   lval* x = v->cell[1];  // 提取 B
+   ```
+
+   此时，`x = B`。
+
+2. **调用 `memmove`**：
+
+   ```c
+   memmove(&v->cell[1], &v->cell[2], sizeof(lval*) * (4 - 1 - 1));
+   ```
+
+   - **`&v->cell[1]`** 是目标地址（索引 1）。
+   - **`&v->cell[2]`** 是源地址（索引 2）。
+   - **`sizeof(lval\*) \* (4 - 1 - 1) = sizeof(lval\*) \* 2`**，表示移动两个元素。
+
+   移动后数组变为：
+
+   ```c
+   v->cell = [A, C, D, D];  // 索引 2 的元素覆盖了索引 1 的位置
+   ```
+
+3. **更新 `v->count`**：
+
+   ```c
+   v->count--;  // 数组长度减 1
+   ```
+
+   此时：
+
+   ```c
+   v->cell = [A, C, D];  // 长度变为 3
+   ```
+
+4. **重新分配内存**：
+
+   ```c
+   v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+   ```
+
+   - 新的内存大小是 `sizeof(lval*) * 3`，释放了不再需要的空间。
+
+------
+
+### **2. `realloc` 的作用**
+
+`realloc` 用于重新分配内存，调整数组的大小。
+
+#### **代码片段**
+
+```c
+v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+```
+
+#### **解释**
+
+- **`v->cell`**：原始数组的指针。
+- **`sizeof(lval\*)`**：单个指针的大小。
+- **`v->count`**：当前数组的元素数量。
+
+#### **作用**
+
+1. 根据当前的元素数量 `v->count`，调整数组的内存大小。
+2. 如果数组变小，则多余的空间会被释放；如果数组变大，则分配更多的空间。
+3. 返回新的指针，如果内存重新分配成功，指向调整后的数组。
+
+#### **示例**
+
+假设当前数组 `v->cell`：
+
+```c
+v->cell = [A, C, D, NULL];  // 长度为 4
+```
+
+1. 调用 `realloc`：
+
+   ```c
+   v->cell = realloc(v->cell, sizeof(lval*) * 3);
+   ```
+
+2. 新的数组内存分配：
+
+   ```c
+   v->cell = [A, C, D];  // 长度调整为 3，释放了不需要的部分
+   ```
+
+------
+
+### **总结**
+
+1. **`memmove` 的功能**：
+   - 将从索引 `i+1` 开始的元素向前移动，覆盖索引 `i` 的位置，达到移除元素的目的。
+   - 示例：从 `[A, B, C, D]` 变为 `[A, C, D]`。
+2. **`realloc` 的功能**：
+   - 重新分配内存，使数组的大小与元素数量一致，避免浪费空间。
+   - 示例：从长度 4 调整为长度 3。
+
+两者结合确保移除元素后，数组既保持逻辑连续性，又释放了多余的内存。
+
+
+
+测试代码：
+
+```c
+cc -std=c99 -Wall s_expressions.c mpc.c -ledit -o s_expressions   
+./s_expressions 
+Lispy Version 0.0.0.0.5
+Press Ctrl+c to Exit
+
+lispy> + 1 (* 7 5) 3 
+39
+lispy> (-100)
+-100
+lispy> 
+()
+lispy> /
+/
+lispy> (/ ())
+Error: Cannot operate on non-number!
+lispy> 
+```
+
+
+
+表达式 `+ 1 (* 7 5) 3` 的解析中，**`+` 是一个多元操作符，而不是一个严格的二元操作符**。因此，这里需要解释清楚为什么 `+` 需要三个操作数。
+
+------
+
+### **前缀表达式的特点**
+
+1. **前缀表达式规则**：
+   - 操作符后面直接跟操作数，按照从左到右的顺序依次计算。
+   - 操作符可以作用于多个操作数（在某些 Lisp 风格的表达式中，操作符往往是**多元的**，而不是固定的二元）。
+2. **多元操作符**：
+   - 在这个表达式中，`+` 是一个多元操作符，可以接收任意多个操作数并计算其和。
+   - 例如：
+     - `+ 1 2` → `1 + 2`
+     - `+ 1 2 3` → `1 + 2 + 3`
+
+------
+
+### **为什么这里需要三个操作数？**
+
+在表达式 `+ 1 (* 7 5) 3` 中：
+
+1. **`+` 是操作符**：
+   - `+` 需要处理其后面的所有操作数，直到遇到整个表达式的结束。
+2. **操作数依次是：**
+   - 第一个操作数：`1`
+   - 第二个操作数：`(* 7 5)`（这是一个子表达式，需要先计算）
+   - 第三个操作数：`3`
+3. **多元计算逻辑**：
+   - 在多元运算中，`+` 会将 `1`、`(* 7 5)` 的结果、`3` 依次累加。
+
+------
+
+### **总结**
+
+- +需要三个操作数的原因是：
+  1. **这是一个多元操作符**，而非严格的二元操作符。
+  2. 它会作用于其后所有的操作数。
+  3. 表达式 `+ 1 (* 7 5) 3` 是合法的前缀表达式，其含义是对 `1`、`(* 7 5)` 和 `3` 求和，计算顺序由嵌套的子表达式优先级决定。
+
+最终，这种逻辑符合 Lisp 风格的前缀表示法规则。
+
+在 Lisp 风格的前缀表达式中，操作符（如 `+`）可以接受任意数量的操作数。操作数的数量不受限制，表达式计算时从左到右依次累加所有操作数，遵循嵌套优先的规则。你可以写出像 `+ 1 2 3 4` 或 `+ 1 2 3 4 5 6` 这样的表达式，计算逻辑完全相同。
+
+
+
+# Q-Expressions • Chapter 10
+
