@@ -257,7 +257,7 @@ Below is a proposed outline for an English-language book on Lambda Calculus, tai
 
 ------
 
-### Chapter 3: **Classic Constructions in Lambda Calculus**
+### Chapter 3: Classic Constructions in Lambda Calculus
 
 1. Booleans and Conditional Expressions
    - Church Booleans: `true` and `false`
