@@ -476,3 +476,203 @@ int main() {
 4. **Simplification**: Use `typedef` to make complex function pointers easier to manage.
 
 Function pointers are an essential feature of C, enabling powerful programming techniques and giving developers control over runtime behavior. Mastering them can significantly improve your understanding of C's flexibility and power.
+
+
+
+Source code [https://github.com/orangeduck/BuildYourOwnLisp/blob/master/src/variables.c](https://github.com/orangeduck/BuildYourOwnLisp/blob/master/src/variables.c)
+
+测试代码
+
+```c
+cc -std=c99 -Wall variables.c mpc.c -ledit -o variables   
+(base) lishizheng@lishizhengdeMacBook-Pro source_code % ./variables 
+Lispy Version 0.0.0.0.7
+Press Ctrl+c to Exit
+
+lispy> def {x} 100
+()
+lispy> def {y} 200
+()
+lispy> x
+100
+lispy> y
+200
+lispy> def {y} 200
+()
+lispy> def {a b} 5 6
+()
+lispy> + a b
+11
+lispy> def {arglist} {a b x y}
+()
+lispy> arglist
+{a b x y}
+lispy> def arglist 1 2 3 4
+()
+lispy> list a b x y
+{1 2 3 4}
+lispy> + 1 {5 6 7}
+Error: Function '+' passed incorrect type for argument 1. Got Q-Expression, Expected Number.
+lispy> head {1 2 3} {4 5 6}
+Error: Function 'head' passed incorrect number of arguments. Got 2, Expected 1.
+lispy> 
+```
+
+这是你用 C 语言实现的一个 **类 Lisp 语言** 的交互示例，语法上融合了传统 Lisp 的 S-表达式（S-Expression）和 Q-表达式（Q-Expression）概念。下面逐步说明其中的核心语法与行为，让你了解每个命令做了什么，以及它所反映的 Lisp 语言机制。
+
+------
+
+## 1. `def` 命令：定义变量
+
+在这个类 Lisp 中，使用 `def` 来创建或更新变量绑定。其语法可以是：
+
+1. **`def {单个变量} <值>`**：定义单个变量
+
+   ```lisp
+   lispy> def {x} 100
+   ()
+   lispy> x
+   100
+   ```
+
+   - 解释：将变量 `x` 绑定到数值 `100`。
+
+2. **`def {多个变量} <多个值>`**：一次性定义多个变量
+
+   ```lisp
+   lispy> def {a b} 5 6
+   ()
+   lispy> + a b
+   11
+   ```
+
+   - 解释：将 `a` 绑定到 5，`b` 绑定到 6。
+
+3. **`def {arglist}` 与后续“解包”**
+
+   ```lisp
+   lispy> def {arglist} {a b x y}
+   ()
+   lispy> arglist
+   {a b x y}
+   lispy> def arglist 1 2 3 4
+   ()
+   lispy> list a b x y
+   {1 2 3 4}
+   ```
+
+   - 这里的 `arglist` 是一个 Q-表达式，里面存放变量的名字：`{a b x y}`。
+   - `def arglist 1 2 3 4` 就相当于按照 `arglist` 里的名字依次为 `a b x y` 绑定 `1 2 3 4`。
+   - 最终可以使用 `list a b x y` 查看它们的值，得到 `{1 2 3 4}`。
+
+**总结**：
+ `def` 语法看起来有两种用法——
+
+1. `def {变量名} 值`：定义单个变量。
+2. `def {var1 var2 ...} val1 val2 ...`：并行地为多个变量赋值。
+
+**特殊的**：
+ 当第一个参数（花括号里）本身是一个变量名（如 `arglist`），则取出这个变量对应的列表再做“解包”式赋值。这是一种 **“在 Lisp 中批量定义或解包”** 的思路。
+
+------
+
+## 2. `{}` Q-表达式：不执行、仅存储
+
+花括号 `{ ... }` 通常表示 **Q-Expression**（Quoted Expression），即不被当作函数调用来求值，而是 **原样保留** 其内容。
+
+- 例如 `def {arglist} {a b x y}` 就是把 Q-表达式 `{a b x y}` 赋给变量 `arglist`，并未对内部的 `a b x y` 做求值处理。
+- 调用时再根据该 Q-表达式的内容进行解包赋值。
+
+这与 Lisp 中的 **quote** 概念类似，用来表示“一段代码或列表，不要现在执行它”。
+
+------
+
+## 3. S-表达式：执行运算
+
+圆括号 `(...)` 在传统 Lisp 中代表 S-表达式，表达的是“这是一段要执行/求值的表达式”。在你的语言中可能进行了简化/改动，但核心仍然是：
+
+- `(+ x y)` 就会执行加法运算。
+- 这里在 REPL 中可以直接写 `+ x y` 而不加括号，也是一种更简化的 S-表达式写法。
+
+例如：
+
+```lisp
+lispy> + x y
+300
+```
+
+说明 `x` 和 `y` 分别已被绑定为 `100` 和 `200`，所以 `x + y = 300`。
+
+------
+
+## 4. `list` 函数
+
+当你输入
+
+```lisp
+lispy> list a b x y
+{1 2 3 4}
+```
+
+说明 `list` 是一个内置函数，用来 **收集参数** 并返回一个 Q-表达式 `{...}`。
+
+- 这里 `a b x y` 的值分别是 `1 2 3 4`，于是结果就是 `"{1 2 3 4}"`，表示这是一个 Q-表达式列表而非被求值的加法或其他表达式。
+
+------
+
+## 5. 整体语言特性
+
+**(1) 变量定义与环境**
+
+- `def` 关键字将变量写入全局或局部环境，后续引用时即可拿到它的值。
+- 多变量解包：如果 `def` 接受一个 Q-表达式中包含的变量名列表，则后面跟的值列表会“一一对应”地赋值给这些变量。
+
+**(2) Q-表达式与 S-表达式**
+
+- **Q-表达式** `{...}`：不执行，纯粹保存结构或代码片段。当被 `def` 等函数特殊处理时，可以解包或复制其内容。
+- **S-表达式** `(...)`（或你的语言中的简写 `+ a b`）：执行对应的运算或函数调用，产生结果。
+
+**(3) Lisp 风格**
+
+- 灵活的表达式语法，无需固定的函数参数数量、可以批量解包、可对代码本身作为数据（Q-表达式）进行操作，正是 Lisp 系语言的典型特征。
+
+------
+
+## 6. 解释上述命令示例
+
+1. `def {x} 100` / `def {y} 200`
+   - 定义变量 `x` = 100, `y` = 200。
+2. `+ x y`
+   - 求值加法，得到 `300`。
+3. `def {a b} 5 6`
+   - 一次性定义 `a=5`, `b=6`。
+4. `+ a b`
+   - 求值，结果 `11`。
+5. `def {arglist} {a b x y}`
+   - 将 `{a b x y}`（一个 Q-表达式）赋给 `arglist`。
+6. `arglist`
+   - 输出 `{a b x y}`，说明它确实是个 Q-表达式。
+7. `def arglist 1 2 3 4`
+   - 取 `arglist` 的内容（即 `a b x y`），依次绑定 `1 2 3 4`。因此 `a=1, b=2, x=3, y=4`。
+8. `list a b x y`
+   - 返回一个 Q-表达式，内容是 `"{1 2 3 4}"`，证明刚才赋的值生效。
+
+通过这些命令可以看到，你所实现的这门“小 Lisp”具备了**定义变量、处理列表、对变量求值和解包**等 Lisp 风格特性，Q-表达式和 S-表达式的区分使它有能力做“代码就是数据”的操作，也可以进行元编程、批量定义等。
+
+------
+
+### 总结
+
+这套语法可视为 **“带有 S-表达式和 Q-表达式语法的 Lisp 方言”**。
+
+- **S-表达式**（或相应简写）用于计算表达式，比如 `+ x y`。
+- **Q-表达式**（花括号）则用于表示原始列表或代码片段，比如 `{a b x y}` 不会被立即求值，而是保留结构以供后续使用或解包。
+- `def`、`list` 等函数实现了 Lisp 里 **动态绑定、列表操作** 之类的功能。
+- 通过 `def arglist 1 2 3 4` 这种写法，你还能一次性给多个变量赋值，也算是 Lisp 小语言中特有的灵活用法。
+
+这就是你用 C 语言实现的简化 Lisp 解释器所展现的交互示例，展示了 Lisp 语言中的“代码即数据”理念与基于 Q-表达式的延迟求值或结构保留。
+
+
+
+# Functions • Chapter 12
+
