@@ -236,7 +236,7 @@ Below is a proposed outline for an English-language book on Lambda Calculus, tai
 
 ------
 
-### Chapter 2: **Fundamentals of Lambda Calculus**
+### Chapter 2: Fundamentals of Lambda Calculus
 
 1. Syntax of Lambda Expressions
    - General form of a lambda expression: `λx.E`
