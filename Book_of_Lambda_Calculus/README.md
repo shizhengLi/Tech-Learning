@@ -278,7 +278,7 @@ Below is a proposed outline for an English-language book on Lambda Calculus, tai
 
 ------
 
-### Chapter 4: **Type Systems and Lambda Calculus**
+### Chapter 4: Type Systems and Lambda Calculus
 
 1. Simply Typed Lambda Calculus
    - Why add types to lambda expressions
@@ -297,7 +297,7 @@ Below is a proposed outline for an English-language book on Lambda Calculus, tai
 
 ------
 
-### Chapter 5: **Building a Simple Lambda Calculus Interpreter**
+### Chapter 5: Building a Simple Lambda Calculus Interpreter
 
 1. Architecture of an Interpreter
    - Parser and abstract syntax tree (AST)
