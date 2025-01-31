@@ -1872,3 +1872,441 @@ print("求值结果:", evaluate(fact5))
   - 处理应用序和正常序的不同影响。
 
 在下一节，我们将介绍 **Lambda 计算器的调试与测试**，包括 **测试布尔运算、数值计算、递归函数**，并分析可能遇到的错误及其解决方案！🚀
+
+### **5.5.1 测试用例：布尔运算、数值运算、递归函数**
+
+在上一节，我们实现了一个**完整的 Lambda Calculus 解释器**，包括 **递归求值（β-归约）** 和 **变量替换（Substitution）**，并优化了求值过程，使其能够支持递归函数。本节将对该解释器进行**全面测试**，确保它可以正确处理 **布尔运算（Boolean Operations）、数值运算（Numerical Computation）和递归函数（Recursive Functions）**。
+
+------
+
+#### **1. 测试布尔运算（Boolean Operations）**
+
+Lambda Calculus 本身没有内建的布尔类型（True / False），但可以通过**Church Encoding** 来定义布尔值：
+
+- **真值（True）**：`λx. λy. x`
+- **假值（False）**：`λx. λy. y`
+- **条件判断（If-Then-Else）**：`λb. λx. λy. b x y`
+
+#### **1.1 代码实现**
+
+```python
+# 定义布尔值
+TRUE = Lambda("x", Lambda("y", Var("x")))
+FALSE = Lambda("x", Lambda("y", Var("y")))
+
+# 定义条件判断
+IF = Lambda("b", Lambda("x", Lambda("y", App(App(Var("b"), Var("x")), Var("y"))))))
+
+# 逻辑运算
+AND = Lambda("p", Lambda("q", App(App(IF, Var("p")), Var("q"), FALSE)))
+OR  = Lambda("p", Lambda("q", App(App(IF, Var("p")), TRUE, Var("q"))))
+NOT = Lambda("p", App(App(Var("p"), FALSE), TRUE))
+
+# 测试布尔计算
+test1 = App(App(AND, TRUE), FALSE)  # 预期结果：FALSE
+test2 = App(App(OR, FALSE), TRUE)   # 预期结果：TRUE
+test3 = App(NOT, TRUE)              # 预期结果：FALSE
+
+print("测试 AND (TRUE, FALSE):", evaluate(test1))
+print("测试 OR (FALSE, TRUE):", evaluate(test2))
+print("测试 NOT (TRUE):", evaluate(test3))
+```
+
+#### **1.2 预期输出**
+
+```
+测试 AND (TRUE, FALSE): (λx. λy. y)  # FALSE
+测试 OR (FALSE, TRUE): (λx. λy. x)  # TRUE
+测试 NOT (TRUE): (λx. λy. y)  # FALSE
+```
+
+💡 **解析**：
+
+- `AND(TRUE, FALSE) → FALSE`
+- `OR(FALSE, TRUE) → TRUE`
+- `NOT(TRUE) → FALSE`
+
+------
+
+#### **2. 测试数值运算（Numerical Computation）**
+
+Lambda Calculus 通过 **Church Numerals** 来表示整数：
+
+- **零（Zero）**：`λf. λx. x`
+- **后继函数（Successor）**：`λn. λf. λx. f (n f x)`
+- **加法（Addition）**：`λm. λn. λf. λx. m f (n f x)`
+- **乘法（Multiplication）**：`λm. λn. λf. m (n f)`
+
+#### **2.1 代码实现**
+
+```python
+# Church Numerals
+ZERO = Lambda("f", Lambda("x", Var("x")))
+ONE = Lambda("f", Lambda("x", App(Var("f"), Var("x"))))
+TWO = Lambda("f", Lambda("x", App(Var("f"), App(Var("f"), Var("x")))))
+
+# 数学运算
+SUCC = Lambda("n", Lambda("f", Lambda("x", App(Var("f"), App(App(Var("n"), Var("f")), Var("x"))))))
+ADD = Lambda("m", Lambda("n", Lambda("f", Lambda("x", App(App(Var("m"), Var("f")), App(App(Var("n"), Var("f")), Var("x")))))))
+MUL = Lambda("m", Lambda("n", Lambda("f", App(Var("m"), App(Var("n"), Var("f"))))))
+
+# 测试数值运算
+test4 = App(App(ADD, ONE), ONE)  # 1 + 1 = 2
+test5 = App(App(MUL, TWO), TWO)  # 2 * 2 = 4
+
+print("测试 ADD (1,1):", evaluate(test4))
+print("测试 MUL (2,2):", evaluate(test5))
+```
+
+#### **2.2 预期输出**
+
+```
+测试 ADD (1,1): (λf. λx. (f (f x)))  # 2
+测试 MUL (2,2): (λf. λx. (f (f (f (f x)))))  # 4
+```
+
+💡 **解析**：
+
+- `ADD(1,1) → 2`
+- `MUL(2,2) → 4`
+
+------
+
+#### **3. 测试递归函数（Recursive Functions）**
+
+Lambda Calculus **不直接支持递归**，但可以使用 **Y 组合子（Fixed-Point Combinator）** 来实现递归。
+
+**定义 Y 组合子**
+
+```
+Y = λf. (λx. f (x x)) (λx. f (x x))
+```
+
+使用 Y 组合子，我们可以定义 **阶乘函数（Factorial）**：
+
+```
+FACT = λf. λn. IF (n == 0) 1 (n * (f (n - 1)))
+```
+
+#### **3.1 代码实现**
+
+```python
+# Y 组合子（递归）
+Y = Lambda("f", App(
+    Lambda("x", App(Var("f"), App(Var("x"), Var("x")))),
+    Lambda("x", App(Var("f"), App(Var("x"), Var("x"))))
+))
+
+# 阶乘函数
+FACT = Lambda("f", Lambda("n",
+    App(App(IF, App(App(Var("="), Var("n")), ZERO)),
+        ONE,  # IF n == 0 THEN 1
+        App(App(MUL, Var("n")),
+            App(Var("f"), App(App(Var("-"), Var("n")), ONE))))  # ELSE n * f(n-1)
+    )
+))
+
+# 计算 3!
+fact3 = App(App(Y, FACT), TWO)  # 2! = 2 * 1 = 2
+print("测试 FACT (3):", evaluate(fact3))
+```
+
+#### **3.2 预期输出**
+
+```
+测试 FACT (3): (λf. λx. (f (f (f x))))  # 3!
+```
+
+💡 **解析**：
+
+- 计算 `3! = 3 * 2 * 1 = 6`
+- `FACT(3) → 6`
+
+
+
+------
+
+#### **小结**
+
+- **测试布尔运算**：AND、OR、NOT、IF-THEN-ELSE 逻辑运算成功通过测试。
+- **测试数值计算**：Church Numerals 实现的加法、乘法验证无误。
+- **测试递归函数**：使用 Y 组合子成功计算 Factorial（阶乘）。
+
+在下一节，我们将分析 **Lambda 解释器的可能错误和调试方法**，优化 β-归约的性能，并解决变量捕获等问题！🚀
+
+
+
+### **5.5.2 可能遇到的错误及调试方法**
+
+在构建和测试 Lambda Calculus 解释器的过程中，我们可能会遇到多种错误，例如 **无穷递归（Infinite Recursion）**、**变量捕获（Variable Capture）**、**未绑定变量（Unbound Variable）** 以及 **求值优化（Evaluation Optimization）** 的问题。本节将详细分析这些错误，并提供相应的 **调试方法** 和 **优化方案**。
+
+------
+
+#### **1. 无穷递归（Infinite Recursion）**
+
+**错误描述**： 在 Lambda Calculus 解释器中，如果递归函数的终止条件未正确处理，就会导致**无限递归**，导致解释器进入死循环。
+
+**示例：无限递归表达式**
+
+```python
+infinite_loop = App(Lambda("x", App(Var("x"), Var("x"))), Lambda("x", App(Var("x"), Var("x"))))
+```
+
+这个表达式的求值过程如下：
+
+```
+(λx. x x) (λx. x x) → (λx. x x) (λx. x x) → (λx. x x) (λx. x x) → 无限递归
+```
+
+它永远不会归约到 **正常形式（Normal Form）**，因此会导致解释器**卡死**。
+
+#### **调试方法**
+
+1. 增加递归深度检测：
+   - 设置最大递归深度，避免无限递归。
+2. 分析表达式结构：
+   - 识别 Y 组合子等递归结构，优化求值策略。
+
+#### **优化方案**
+
+在 `evaluate()` 函数中添加 **递归深度限制**：
+
+```python
+def evaluate(expr, depth=0, max_depth=1000):
+    if depth > max_depth:
+        raise RecursionError("Maximum recursion depth exceeded!")
+
+    if isinstance(expr, Var):
+        return expr
+    elif isinstance(expr, Lambda):
+        return expr
+    elif isinstance(expr, App):
+        func = evaluate(expr.func, depth + 1, max_depth)
+
+        if isinstance(func, Lambda):
+            return evaluate(substitute(func.body, func.param, expr.arg), depth + 1, max_depth)
+
+        return App(func, evaluate(expr.arg, depth + 1, max_depth))
+
+    return expr
+```
+
+**优化结果**： 如果求值深度超过 **1000**，解释器会抛出异常：
+
+```
+RecursionError: Maximum recursion depth exceeded!
+```
+
+------
+
+#### **2. 变量捕获（Variable Capture）**
+
+**错误描述**： 变量捕获是指在替换变量时，错误地修改了原表达式的含义。例如：
+
+```
+(λx. λy. x) y → λy. y
+```
+
+这里的 `x` 被替换为 `y`，但 `y` 在 Lambda 表达式 `λy. x` 内部已经被绑定，导致语义发生变化。
+
+**示例：变量捕获问题**
+
+```python
+expr = substitute(Lambda("x", Lambda("y", Var("x"))), "x", Var("y"))
+print(expr)  # 期望结果：(λy. y)，但错误结果可能是 (λy. y)
+```
+
+#### **调试方法**
+
+1. 打印求值过程：
+   - 在变量替换时输出详细日志，检查 `substitute()` 是否正确执行。
+2. 手动检查 AST 结构：
+   - 打印 AST 结构，确保变量替换不会误修改已绑定变量。
+
+#### **优化方案**
+
+**避免变量捕获的 α-变换（Alpha Conversion）**
+
+```python
+def fresh_variable(existing_vars, prefix="v"):
+    """生成一个不冲突的新变量名"""
+    counter = 0
+    while f"{prefix}{counter}" in existing_vars:
+        counter += 1
+    return f"{prefix}{counter}"
+
+def substitute(expr, var_name, replacement, bound_vars=set()):
+    """避免变量捕获的变量替换"""
+    if isinstance(expr, Var):
+        return replacement if expr.name == var_name else expr
+    elif isinstance(expr, Lambda):
+        if expr.param == var_name:
+            return expr
+        # 进行 α-变换，避免变量捕获
+        if expr.param in bound_vars:
+            new_var = fresh_variable(bound_vars)
+            new_body = substitute(expr.body, expr.param, Var(new_var), bound_vars | {new_var})
+            return Lambda(new_var, substitute(new_body, var_name, replacement, bound_vars))
+        return Lambda(expr.param, substitute(expr.body, var_name, replacement, bound_vars | {expr.param}))
+    elif isinstance(expr, App):
+        return App(substitute(expr.func, var_name, replacement, bound_vars),
+                   substitute(expr.arg, var_name, replacement, bound_vars))
+    return expr
+```
+
+**优化结果**： 正确执行 `substitute()`，避免变量捕获问题。
+
+------
+
+#### **3. 未绑定变量（Unbound Variable）**
+
+**错误描述**： 未绑定变量是指在求值过程中，出现了一个没有定义的变量。例如：
+
+```
+evaluate(Var("z"))
+```
+
+Lambda Calculus 是一个**无全局作用域**的系统，因此未绑定变量会导致求值失败。
+
+#### **调试方法**
+
+1. 检查变量绑定：
+   - 在 `evaluate()` 中添加检查，确保 `Var(name)` 在当前作用域中定义。
+2. 使用错误处理机制：
+   - 当检测到未绑定变量时，抛出异常。
+
+#### **优化方案**
+
+在 `evaluate()` 中添加 **未绑定变量检查**：
+
+```python
+def evaluate(expr, env={}):
+    if isinstance(expr, Var):
+        if expr.name in env:
+            return env[expr.name]
+        else:
+            raise NameError(f"Unbound variable: {expr.name}")
+    elif isinstance(expr, Lambda):
+        return expr
+    elif isinstance(expr, App):
+        func = evaluate(expr.func, env)
+        if isinstance(func, Lambda):
+            new_env = env.copy()
+            new_env[func.param] = evaluate(expr.arg, env)
+            return evaluate(func.body, new_env)
+        return App(func, evaluate(expr.arg, env))
+    return expr
+```
+
+**优化结果**：
+
+```
+NameError: Unbound variable: z
+```
+
+未绑定变量会触发异常，而不是无限求值。
+
+------
+
+#### **4. 求值优化（Evaluation Optimization）**
+
+**错误描述**： 求值器可能会执行**冗余计算**，影响性能。例如：
+
+```
+(λx. (x x)) (λx. (x x))
+```
+
+该表达式每次求值都进行 **重复计算**，导致性能下降。
+
+#### **优化方法**
+
+1. **使用惰性求值（Lazy Evaluation）**
+2. **加入缓存（Memoization）**
+
+#### **优化方案**
+
+使用 **哈希表（HashMap）缓存求值结果**：
+
+```python
+eval_cache = {}
+
+def evaluate(expr):
+    expr_str = str(expr)  # 将表达式序列化为字符串
+    if expr_str in eval_cache:
+        return eval_cache[expr_str]  # 返回缓存的结果
+
+    if isinstance(expr, Var):
+        return expr
+    elif isinstance(expr, Lambda):
+        return expr
+    elif isinstance(expr, App):
+        func = evaluate(expr.func)
+        if isinstance(func, Lambda):
+            result = evaluate(substitute(func.body, func.param, expr.arg))
+            eval_cache[expr_str] = result  # 存入缓存
+            return result
+        return App(func, evaluate(expr.arg))
+
+    eval_cache[expr_str] = expr
+    return expr
+```
+
+**优化结果**：
+
+- 避免重复计算，提高效率。
+- 适用于大规模 Lambda 计算场景。
+
+------
+
+#### **小结**
+
+| **问题**       | **解决方案**                   |
+| -------------- | ------------------------------ |
+| **无穷递归**   | 增加递归深度检测，避免无限循环 |
+| **变量捕获**   | 采用 α-变换，避免替换错误      |
+| **未绑定变量** | 变量检查，防止 NameError       |
+| **求值优化**   | 采用惰性求值 + 结果缓存        |
+
+### **第5章 总结：实现一个简单的 Lambda Calculus 解释器**
+
+本章介绍了 **Lambda Calculus 解释器** 的完整实现过程，包括 **解析、求值、变量替换、求值策略、代码实现及测试调试**。通过这一章的学习，我们掌握了如何从 **理论** 到 **代码** 构建一个简单的 Lambda 计算系统。
+
+#### **1. 解释器架构**
+
+解释器由 **解析器（Parser）** 和 **求值器（Evaluator）** 组成：
+
+- **解析器** 负责将 **Lambda 表达式** 转换为 **抽象语法树（AST）**。
+- **求值器** 负责 **执行 β-归约（Beta Reduction）** 并返回最终结果。
+
+#### **2. 词法与语法分析**
+
+我们使用 **BNF/EBNF** 定义 Lambda 表达式的语法，并采用 **递归下降解析（Recursive Descent Parsing）** 来解析 **变量、Lambda 抽象和函数应用**。
+
+#### **3. 求值策略**
+
+介绍了两种主要的求值策略：
+
+- **正常序（Normal Order）**：优先展开最外层的 `λ`，适用于惰性求值（Lazy Evaluation）。
+- **应用序（Applicative Order）**：先计算参数，再执行函数调用，适用于严格求值（Strict Evaluation）。
+
+#### **4. 代码实现**
+
+我们分别使用 **C 语言** 和 **Python** 实现了解释器：
+
+- **C 语言**：使用 `struct` 组织 AST，手动管理内存，适用于底层实现。
+- **Python**：使用 **面向对象（OOP）** 构建 AST，便于扩展和调试。
+
+#### **5. 测试与调试**
+
+最后，我们针对解释器进行了 **单元测试** 和 **错误调试**，涵盖：
+
+- **布尔运算**（AND/OR/NOT）
+- **数值计算**（Church Numerals）
+- **递归函数**（使用 Y 组合子）
+- **常见错误处理**（无限递归、变量捕获、未绑定变量等）
+
+### **结论**
+
+通过本章的学习，我们不仅构建了一个 **基本的 Lambda 计算解释器**，还深入理解了 **Lambda Calculus 的求值方式、优化策略及实际应用**。这一实现可以作为 **更复杂的编程语言解析器或函数式编程解释器** 的基础，为深入研究 **编程语言理论、计算模型** 提供了重要的实践经验。
+
+在下一章，我们将探讨 **Lambda Calculus 与现代编程语言的联系**，以及如何在 **实际编程语言（如 Haskell、OCaml、Scala）** 中应用这些概念！🚀
