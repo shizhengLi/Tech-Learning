@@ -346,6 +346,8 @@ Below is a proposed outline for an English-language book on Lambda Calculus, tai
 
 ### Chapter 7: **Lambda Calculus and Functional Programming**
 
+
+
 1. Impact on Functional Languages
    - How Lambda Calculus shaped Lisp, Scheme, Haskell, ML, etc.
    - Treating functions as first-class citizens
