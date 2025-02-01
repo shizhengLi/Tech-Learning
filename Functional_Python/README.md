@@ -1,3 +1,23 @@
+# Mastering Functional Programming in Python
+
+>
+>
+> This is a book created by Shizheng Li, with the help of DeepSeek R1 and V3.
+
+### Book Cover
+
+Created by Grok 2
+
+![image-20250201164138280](./assets/image-20250201164138280.png)
+
+
+
+Option 2
+
+![image-20250201164210347](./assets/image-20250201164210347.png)
+
+
+
 
 
 **Title Suggestions**  
