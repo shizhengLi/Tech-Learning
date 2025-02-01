@@ -1,5 +1,11 @@
 # Lambda Calculus（λ演算）
 
+
+
+>
+>
+>This is a book created by Shizheng Li with the help of GPT 4o.
+
 Book cover created by Grok 2
 
 ![image-20250201133717843](./assets/image-20250201133717843.png)
