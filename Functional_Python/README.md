@@ -93,6 +93,8 @@
    - Incremental Replacement of Loops with `reduce`  
    - Aspect-Oriented Programming (AOP) in a Functional Style  
 
+
+
 ---
 
 #### **Appendices and Resources**  
@@ -110,34 +112,7 @@
   - Simulating Monad Transformers  
   - Typeclass Pattern Emulation  
 
----
 
-### **Key Features**  
-- **Deep Technical Examples**:  
-  - Implementing a Mini-Compiler (Lexer → AST → Optimizer)  
-  - Type-Driven API Documentation Generation (FastAPI + DSL)  
-
-- **Code Snippets**:  
-  
-  ```python  
-  # Generic Functor Implementation  
-  from typing import Generic, TypeVar, Callable  
-  T = TypeVar("T")  
-  R = TypeVar("R")  
-  
-  class Box(Generic[T]):  
-      def __init__(self, value: T):  
-          self._value = value  
-  
-      def map(self, f: Callable[[T], R]) -> "Box[R]":  
-          return Box(f(self._value))  
-  
-  Box(42).map(lambda x: x * 2).map(str)  # Box("84")  
-  ```
-  
-- **Challenges for Readers**:  
-  - Refactor Threading-Based Code to Message-Passing  
-  - Optimize Recursive Algorithms with `@functools.cache`  
 
 ---
 
@@ -263,37 +238,6 @@ This book equips Python experts to leverage functional paradigms in high-stakes 
 - **附录C**：从Python到Haskell/Scala  
   - Monad Transformers的Python近似实现  
   - 类型类（Typeclass）模拟与泛型派生  
-
----
-
-### **内容特色**  
-- **深度案例**：  
-  
-  - 用函数式实现一个Mini-Compiler（词法分析→语法树→优化）  
-  - 基于类型提示的自动API文档生成（FastAPI + 函数式DSL）  
-  
-- **代码示例**：  
-  ```python  
-  # 使用类型泛型实现一个Functor  
-  from typing import TypeVar, Generic, Callable  
-  T = TypeVar("T")  
-  R = TypeVar("R")  
-  
-  class Box(Generic[T]):  
-      def __init__(self, value: T):  
-          self._value = value  
-  
-      def map(self, f: Callable[[T], R]) -> "Box[R]":  
-          return Box(f(self._value))  
-  
-  # 使用示例  
-  Box(42).map(lambda x: x * 2).map(str)  # Box("84")  
-  ```
-
-- **读者挑战**：  
-  每章末尾提供“代码反模式重构练习”，例如：  
-  - 将基于`threading.Lock`的共享状态代码改写为无锁消息传递  
-  - 用`@dataclass(frozen=True)`+`functools.cache`优化递归算法  
 
 ---
 
