@@ -1,3 +1,11 @@
+# Lambda Calculus（λ演算）
+
+Book cover created by Grok 2
+
+![image-20250201133717843](./assets/image-20250201133717843.png)
+
+
+
 下面给出一本关于Lambda Calculus（λ演算）的中文书籍大纲示例，面向具有计算机专业背景、对NLP和大模型以及底层实现（如C语言、操作系统）感兴趣，但对Lambda Calculus尚无基础的读者。此大纲力求从基础概念到高级应用都做一定程度的覆盖，并且会在适当章节提供代码示例与解析。
 
 ------
