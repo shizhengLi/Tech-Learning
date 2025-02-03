@@ -651,3 +651,778 @@ You entered: Hello, World!
  ✅ **一定要 `free(line)` 释放 `getline()` 分配的内存，否则会造成内存泄漏！**
 
 🚀 **如果系统支持 `getline()`，强烈推荐使用它来读取输入！**
+
+
+
+## Parsing the line
+
+
+
+>**好的，如果我们回头看看这个循环，我们会看到我们现在已经实现了lsh_read_line()，并且我们有了输入行。现在，我们需要将这一行解析成一个参数列表。我要在这里做一个明显的简化，说我们不允许在命令行参数中使用引号或反斜杠转义。相反，我们将简单地使用空格来分隔参数。因此，命令echo "this message "不会用单个参数调用echo this message，而是用两个参数调用echo:  "this 和 message"。**
+>
+>OK, so if we look back at the loop, we see that we now have implemented `lsh_read_line()`, and we have the line of input. Now, we need to parse that line into a list of arguments. I’m going to make a glaring simplification here, and say that we won’t allow quoting or backslash escaping in our command line arguments. Instead, we will simply use whitespace to separate arguments from each other. So the command `echo "this message"` would not call echo with a single argument `this message`, but rather it would call echo with two arguments: `"this` and `message"`.
+
+
+
+delimiters：分隔符
+
+
+
+>
+>
+>With those simplifications, all we need to do is “tokenize” the string using whitespace as delimiters. That means we can break out the classic library function `strtok` to do some of the dirty work for us.
+
+
+
+```c
+#define LSH_TOK_BUFSIZE 64
+#define LSH_TOK_DELIM " \t\r\n\a"
+char **lsh_split_line(char *line)
+{
+  int bufsize = LSH_TOK_BUFSIZE, position = 0;
+  char **tokens = malloc(bufsize * sizeof(char*));
+  char *token;
+
+  if (!tokens) {
+    fprintf(stderr, "lsh: allocation error\n");
+    exit(EXIT_FAILURE);
+  }
+
+  token = strtok(line, LSH_TOK_DELIM);
+  while (token != NULL) {
+    tokens[position] = token;
+    position++;
+
+    if (position >= bufsize) {
+      bufsize += LSH_TOK_BUFSIZE;
+      tokens = realloc(tokens, bufsize * sizeof(char*));
+      if (!tokens) {
+        fprintf(stderr, "lsh: allocation error\n");
+        exit(EXIT_FAILURE);
+      }
+    }
+
+    token = strtok(NULL, LSH_TOK_DELIM);  // Why using NULL? See below
+  }
+  tokens[position] = NULL;
+  return tokens;
+}
+```
+
+### **解析 `lsh_split_line()`**
+
+该函数的作用是 **解析用户输入的命令行字符串，将其拆分成一个由单词组成的数组**，以供后续执行。
+
+------
+
+### **1. 代码概述**
+
+```c
+#define LSH_TOK_BUFSIZE 64
+#define LSH_TOK_DELIM " \t\r\n\a"
+```
+
+- `LSH_TOK_BUFSIZE`：初始缓冲区大小，存储指向字符串片段（tokens）的指针数组，默认为 `64`。
+- `LSH_TOK_DELIM`：定义分隔符，包括 **空格 (`' '`), tab (`'\t'`), 回车 (`'\r'`), 换行 (`'\n'`), 响铃符 (`'\a'`)**。
+
+```c
+char **lsh_split_line(char *line)
+```
+
+- 该函数**接收一行输入字符串 `line`，并返回解析后的字符串数组**（即 `argv[]` 风格）。
+
+------
+
+### **2. 代码解析**
+
+### **(1) 初始化动态数组**
+
+```c
+int bufsize = LSH_TOK_BUFSIZE, position = 0;
+char **tokens = malloc(bufsize * sizeof(char*));
+char *token;
+
+if (!tokens) {
+  fprintf(stderr, "lsh: allocation error\n");
+  exit(EXIT_FAILURE);
+}
+```
+
+- **`tokens` 是一个指针数组**（`char **tokens`），用于存储解析出的 `token`（子字符串）的指针。
+- 使用 `malloc()` **动态分配内存**，数组初始大小为 `LSH_TOK_BUFSIZE`（64 个指针）。
+- 如果分配失败，直接打印错误并退出。
+
+------
+
+### **(2) 解析字符串**
+
+```c
+token = strtok(line, LSH_TOK_DELIM);
+while (token != NULL) {
+```
+
+- `strtok(line, LSH_TOK_DELIM)`：
+  - 首次调用 `strtok()`，传入 line指针，它会：
+    1. **找到第一个非分隔符的字符**，作为 `token` 开始位置。
+    2. **找到下一个分隔符，并替换为 `\0`**，使得 `token` 成为一个独立字符串。
+    3. **返回 `token` 指针**，指向原始 `line` 字符串的某个位置。
+- `while (token != NULL)`：
+  - **每次调用 `strtok(NULL, LSH_TOK_DELIM)`，它会继续查找下一个 `token`**，直到返回 `NULL`（字符串解析完毕）。
+
+------
+
+### **(3) 存储 `token`**
+
+```c
+tokens[position] = token;
+position++;
+```
+
+- `tokens[position] = token;`：
+  - **将 `token` 指针存入 `tokens` 数组**。
+  - `token` 并没有被复制，而是直接指向 `line` 内部的某个片段（`\0` 已标记结束）。
+- `position++`：数组索引向前移动。
+
+------
+
+### **(4) 重新分配 `tokens` 数组**
+
+```c
+if (position >= bufsize) {
+  bufsize += LSH_TOK_BUFSIZE;
+  tokens = realloc(tokens, bufsize * sizeof(char*));
+  if (!tokens) {
+    fprintf(stderr, "lsh: allocation error\n");
+    exit(EXIT_FAILURE);
+  }
+}
+```
+
+- 如果 `position` 超过当前 `bufsize`，需要扩展 `tokens` 数组：
+  1. `bufsize += LSH_TOK_BUFSIZE;` **增加缓冲区大小**（每次扩展 64 个指针）。
+  2. `realloc()`扩展 `tokens` 指针数组：
+     - **如果 `realloc()` 失败，`tokens` 仍然指向原来的有效地址**（但这里直接退出）。
+  3. **确保指针数组能够存储足够的 `token`**。
+
+------
+
+### **(5) 继续解析下一个 `token`**
+
+```c
+token = strtok(NULL, LSH_TOK_DELIM);
+```
+
+- **每次调用 `strtok(NULL, LSH_TOK_DELIM)`，`strtok()` 会继续解析下一个 `token`**。
+- **直到 `token == NULL`，说明 `line` 已完全解析完毕，循环结束。**
+
+------
+
+### **(6) 终止 `tokens` 数组**
+
+```c
+tokens[position] = NULL;
+return tokens;
+```
+
+- 在数组最后添加 `NULL`，符合 `execvp()` 期望的 `argv[]` 结构：
+
+  - `tokens` 变成一个 `NULL` 结尾的字符串指针数组，例如：
+
+    ```c
+    tokens = { "echo", "hello", "world", NULL }
+    ```
+
+- **返回 `tokens` 指针**，供 Shell 程序后续处理（如 `execvp()` 调用）。
+
+------
+
+### **3. `strtok()` 工作原理**
+
+### **示例**
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+int main() {
+    char line[] = "echo hello world";
+    char *token = strtok(line, " ");
+
+    while (token != NULL) {
+        printf("%s\n", token);
+        token = strtok(NULL, " ");
+    }
+    return 0;
+}
+```
+
+**输出：**
+
+```
+echo
+hello
+world
+```
+
+**解析流程**
+
+1. `strtok(line, " ")`：找到 `"echo"`，并将 `" "` 变为 `\0`，返回 `"echo"` 指针。
+2. `strtok(NULL, " ")`：继续查找 `"hello"`。
+3. `strtok(NULL, " ")`：返回 `"world"`。
+4. `strtok(NULL, " ")`：返回 `NULL`，解析完成。
+
+------
+
+### **4. `lsh_split_line()` 示例**
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    char input[] = "ls -l /home/user";
+    char **args = lsh_split_line(input);
+
+    for (int i = 0; args[i] != NULL; i++) {
+        printf("arg[%d]: %s\n", i, args[i]);
+    }
+
+    free(args);
+    return 0;
+}
+```
+
+**输出**
+
+```
+arg[0]: ls
+arg[1]: -l
+arg[2]: /home/user
+```
+
+------
+
+### **5. `lsh_split_line()` 的局限性**
+
+### **(1) `strtok()` 不是线程安全的**
+
+- `strtok()` 使用**全局静态变量存储状态**，在**多线程环境下可能出错**。
+
+- 解决方案：
+
+  - 使用 **`strtok_r()`**（线程安全版本）。
+
+  ```c
+  char *strtok_r(char *str, const char *delim, char **saveptr);
+  ```
+
+### **(2) 不支持引号包裹的参数**
+
+- 目前的实现会错误地拆分 `echo "hello world"`，变成：
+
+  ```c
+  { "echo", "\"hello", "world\"" }
+  ```
+
+- 解决方案：
+
+  - 使用 `strchr()` 检测 `"..."` 。
+  - 或者使用 **状态机** 解析字符串。
+
+------
+
+### **6. 结论**
+
+✅ **`lsh_split_line()` 解析命令行字符串，并返回 `NULL` 结尾的参数数组。**
+ ✅ **基于 `strtok()` 逐个拆分 `line`，并存储 `token` 指针。**
+ ✅ **使用 `malloc()` + `realloc()` 动态管理 `tokens` 数组，防止溢出。**
+ ✅ **适用于简单命令解析，但不支持引号和转义符。**
+
+🚀 **理解 `strtok()`，掌握 `malloc()` / `realloc()`，是 Shell 编写的核心技能！**
+
+### **为什么 `strtok(NULL, " ")` ？**
+
+在 `strtok()` 解析字符串时，**第一次调用时传入的是字符串指针，后续调用时必须传入 `NULL`，否则会重新解析新字符串**。
+
+------
+
+#### **1. `strtok()` 工作原理**
+
+```c
+char *strtok(char *str, const char *delim);
+```
+
+- 参数 `str`：
+  - 第一次调用时，`str` 传入要解析的字符串指针（如 `"echo hello world"`）。
+  - 后续调用时，必须传入 `NULL`，`strtok()` 会继续解析 **上一次解析的字符串**。
+- 参数 `delim`：
+  - 指定分隔符，如 `" "`（空格）。
+- 返回值：
+  - 返回 **指向当前 `token` 的指针**（但仍在原字符串中）。
+  - 当没有更多 `token` 时，返回 `NULL`。
+
+------
+
+#### **2. `strtok(NULL, " ")` 作用**
+
+```c
+char line[] = "echo hello world";
+char *token = strtok(line, " ");  // 第一次调用，传入 line 指针
+
+while (token != NULL) {
+    printf("%s\n", token);
+    token = strtok(NULL, " ");  // 继续解析同一个字符串
+}
+```
+
+**执行流程**
+
+1. **第一次调用**
+
+   ```c
+   strtok(line, " ")
+   ```
+
+   - **找到第一个 `token`**：`"echo"`
+
+   - 在 `"echo"` 之后的第一个 `" "` 处添加 `\0`，字符串变成：
+
+     ```
+     "echo\0hello world"
+     ```
+
+   - `strtok()` 返回 `"echo"` 的指针。
+
+2. **第二次调用**
+
+   ```c
+   strtok(NULL, " ")
+   ```
+
+   - **传入 `NULL`，`strtok()` 继续解析** **之前的 `line`**。
+
+   - 跳过 `\0`，找到 "hello"，再次在 " " 处插入 `\0`：
+
+     ```
+     "echo\0hello\0world"
+     ```
+
+   - 返回 `"hello"` 指针。
+
+3. **第三次调用**
+
+   ```c
+   strtok(NULL, " ")
+   ```
+
+   - 继续解析 "world"，添加 `\0`：
+
+     ```
+     "echo\0hello\0world\0"
+     ```
+
+   - 返回 `"world"`。
+
+4. **第四次调用**
+
+   ```c
+   strtok(NULL, " ")
+   ```
+
+   - 发现没有剩余 `token`，返回 `NULL`，循环终止。
+
+------
+
+#### **3. `strtok()` 需要 `NULL` 作为参数的原因**
+
+**如果每次都传入新的字符串，`strtok()` 会重新解析，而不是继续之前的解析**。
+ 示例（错误的调用方式）：
+
+```c
+char line[] = "echo hello world";
+
+char *token1 = strtok(line, " ");
+printf("%s\n", token1);
+
+char *token2 = strtok(line, " ");  // ❌ 重新解析 `line`，不会继续上一次解析
+printf("%s\n", token2);
+```
+
+**输出错误**
+
+```
+echo
+echo  // ❌ 没有继续解析 "hello"
+```
+
+正确的方式：
+
+```c
+char *token = strtok(line, " ");
+while (token != NULL) {
+    printf("%s\n", token);
+    token = strtok(NULL, " ");  // ✅ 继续解析
+}
+```
+
+------
+
+#### **4. `strtok()` 内部原理**
+
+`strtok()` **使用静态变量** 存储解析进度：
+
+- **第一次调用时，存储 `line` 起始位置**。
+- **后续 `NULL` 调用时，使用存储的进度继续解析**。
+
+**代码等价于**
+
+```c
+static char *saved_ptr = NULL;
+
+char *custom_strtok(char *str, const char *delim) {
+    if (str != NULL) saved_ptr = str;  // 第一次调用时保存字符串指针
+    if (saved_ptr == NULL) return NULL; // 没有更多 token
+    
+    // 查找下一个分隔符
+    char *token_start = saved_ptr;
+    char *delim_pos = strpbrk(saved_ptr, delim); // 查找分隔符位置
+
+    if (delim_pos) {
+        *delim_pos = '\0'; // 替换为 '\0'，让 token 成为独立字符串
+        saved_ptr = delim_pos + 1; // 更新解析位置
+    } else {
+        saved_ptr = NULL; // 解析完毕
+    }
+
+    return token_start;
+}
+```
+
+------
+
+#### **5. `strtok()` 的局限性**
+
+#### **(1) 破坏原字符串**
+
+```c
+char str[] = "hello world";
+strtok(str, " ");
+printf("%s\n", str);  // 变成 "hello\0world"
+```
+
+- `strtok()`会在 `line` 内部插入 `\0`，修改原始字符串，因此：
+  - **不能用于常量字符串**（`const char *`）。
+  - **如果要保留原始字符串，需要先 `strdup()` 复制一份**。
+
+#### **(2) 不是线程安全**
+
+- `strtok()` **使用静态变量 `saved_ptr` 维护状态**，**多线程环境下调用可能导致冲突**。
+
+- 解决方案：
+
+  - **使用 `strtok_r()`**（线程安全版本）。
+
+  ```c
+  char *strtok_r(char *str, const char *delim, char **saveptr);
+  ```
+
+  - 例：
+
+    ```c
+    char str[] = "hello world";
+    char *token;
+    char *saveptr;
+    
+    token = strtok_r(str, " ", &saveptr);
+    while (token) {
+        printf("%s\n", token);
+        token = strtok_r(NULL, " ", &saveptr);
+    }
+    ```
+
+------
+
+#### **6. 总结**
+
+✅ `strtok()` **第一次调用时，必须传入字符串指针**，后续调用必须使用 `NULL`，否则会重新解析。
+ ✅ `strtok()` **通过修改原字符串（插入 `\0`）来分割字符串**，返回 `token` 指针。
+ ✅ **不适用于多线程环境**，建议使用 `strtok_r()`。
+ ✅ **解析命令行时，`strtok(NULL, " ")` 让我们能逐个获取命令参数**。
+
+🚀 **牢记 `strtok()` 的 `NULL` 机制，可以让你轻松解析字符串！** 🎯
+
+
+
+
+
+## How shells start processes
+
+
+
+>
+>
+>So, once all is said and done, we have an array of tokens, ready to execute. Which begs the question, how do we do that?
+
+
+
+```c
+int lsh_launch(char **args)
+{
+  pid_t pid, wpid;
+  int status;
+
+  pid = fork();
+  if (pid == 0) {
+    // Child process
+    if (execvp(args[0], args) == -1) {
+      perror("lsh");
+    }
+    exit(EXIT_FAILURE);
+  } else if (pid < 0) {
+    // Error forking
+    perror("lsh");
+  } else {
+    // Parent process
+    do {
+      wpid = waitpid(pid, &status, WUNTRACED);
+    } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+  }
+
+  return 1;
+}
+```
+
+
+
+
+
+## **Unix 进程的启动方式及经典做法**
+
+### **1. 引言**
+
+Shell 的核心功能之一是**启动进程（starting processes）**。在 Unix/Linux 系统中，所有的用户进程（除了 `init` 进程）都是由**已有进程派生**出来的，因此理解进程的创建方式是编写 Shell 或管理系统进程的基础。
+
+在 Unix 及其衍生系统（如 Linux）中，启动进程的**经典方法**是使用 `fork()` 和 `exec()` 组合。本文将详细介绍 **Unix 进程的启动机制、经典方法、以及现代通用做法**。
+
+------
+
+### **2. Unix 进程的启动方式**
+
+在 Unix 系统中，进程的创建有两种方式：
+
+1. **系统启动时，由 `init`（或 `systemd`）启动**
+2. **通过 `fork()` 复制进程，再用 `exec()` 替换程序**
+
+#### **2.1 `init` 进程**
+
+当 Unix 内核加载完成后，它启动的第一个用户空间进程就是 **`init`**（现代 Linux 采用 `systemd`）。`init` 负责：
+
+- 初始化系统，启动后台服务（如 `cron`, `syslogd`）。
+- 运行 `getty` 进程，提供登录界面。
+- 作为所有孤儿进程的收容者（`reaper`）。
+
+#### **2.2 `fork()` + `exec()`：进程创建的标准方式**
+
+普通进程的创建方式是：
+
+1. **`fork()` 复制当前进程**（创建子进程）。
+2. **子进程使用 `exec()` 运行新程序**（替换自身）。
+
+示例：
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main() {
+    pid_t pid = fork();  // 创建子进程
+
+    if (pid < 0) {
+        perror("fork failed");
+        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        // 子进程执行新的程序
+        execlp("ls", "ls", "-l", NULL);
+        perror("exec failed");  // 如果 exec 失败，打印错误
+        exit(EXIT_FAILURE);
+    } else {
+        // 父进程等待子进程结束
+        wait(NULL);
+        printf("Child process finished.\n");
+    }
+    return 0;
+}
+```
+
+#### **2.3 `fork()` 和 `exec()` 解析**
+
+#### **(1) `fork()`：复制当前进程**
+
+- `fork()` 调用后，当前进程会被复制，成为**两个几乎相同的进程**（父进程和子进程）。
+- 在子进程中，`fork()` **返回 `0`**，表示自己是子进程。
+- 在父进程中，`fork()` **返回子进程的 PID**。
+
+示例：
+
+```c
+pid_t pid = fork();
+
+if (pid == 0) {
+    printf("我是子进程，PID=%d\n", getpid());
+} else {
+    printf("我是父进程，PID=%d，子进程 PID=%d\n", getpid(), pid);
+}
+```
+
+#### **(2) `exec()`：执行新程序**
+
+`exec()` 系列函数用于**替换当前进程的代码**，包括：
+
+- `execl()`
+- `execv()`
+- `execle()`
+- `execvp()`
+- `execvpe()`
+
+示例：
+
+```c
+execlp("ls", "ls", "-l", NULL);
+```
+
+- 进程调用 `exec()` 后，会加载 `ls` 命令，并运行它，原进程的代码**完全被新进程的代码替换**。
+- **如果 `exec()` 成功，后面的代码不会执行**，除非失败（此时会返回 `-1`）。
+
+------
+
+### **3. `fork()` + `exec()` 的经典使用**
+
+Shell 处理用户输入时，会：
+
+1. **解析命令**，拆分参数。
+2. **调用 `fork()`** 创建子进程。
+3. **子进程调用 `exec()`** 执行新程序。
+4. **父进程调用 `wait()`** 等待子进程结束。
+
+#### **3.1 经典 Shell 进程模型**
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+int main() {
+    char *cmd = "/bin/ls";
+    char *args[] = {"ls", "-l", NULL};
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        // 子进程执行命令
+        execv(cmd, args);
+        perror("exec failed");
+        exit(EXIT_FAILURE);
+    } else {
+        // 父进程等待子进程结束
+        wait(NULL);
+        printf("Child process completed.\n");
+    }
+    return 0;
+}
+```
+
+------
+
+### **4. 现代通用的进程创建方式**
+
+虽然 `fork()` + `exec()` 仍然是主流，但现代操作系统提供了**更高效的替代方案**：
+
+#### **4.1 `posix_spawn()`**
+
+- `fork()` 会复制整个进程的 **内存空间**，但在 `exec()` 之后，原始数据会被丢弃，因此效率不高。
+- `posix_spawn()` **直接创建进程并执行新程序，避免 `fork()` 额外的资源消耗**。
+
+示例：
+
+```c
+#include <spawn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+extern char **environ;
+
+int main() {
+    pid_t pid;
+    char *args[] = {"ls", "-l", NULL};
+    
+    if (posix_spawn(&pid, "/bin/ls", NULL, NULL, args, environ) != 0) {
+        perror("posix_spawn failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Spawned process PID=%d\n", pid);
+    return 0;
+}
+```
+
+**优势**：
+
+- 适用于 **低资源环境**（如嵌入式系统）。
+- 避免 `fork()` 造成的**写时复制（Copy-On-Write）**。
+
+------
+
+#### **4.2 `clone()`（Linux 专用）**
+
+- `clone()` 是 `fork()` 的更底层实现，允许创建**共享资源**的进程。
+- Docker、Linux 容器等技术广泛使用 `clone()` 以优化进程管理。
+
+示例：
+
+```c
+#define _GNU_SOURCE
+#include <sched.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int child_func(void *arg) {
+    printf("Child process running\n");
+    return 0;
+}
+
+int main() {
+    char stack[1024*1024];  // 子进程的栈空间
+    pid_t pid = clone(child_func, stack + sizeof(stack), SIGCHLD, NULL);
+
+    if (pid == -1) {
+        perror("clone failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Created process with PID=%d\n", pid);
+    return 0;
+}
+```
+
+**优势**：
+
+- 允许共享 **内存、文件描述符、信号** 等资源。
+- 用于 **线程（pthread）、轻量级进程（LWP）**。
+
+------
+
+### **5. 总结**
+
+| 方式              | 适用场景          | 优势                   | 劣势            |
+| ----------------- | ----------------- | ---------------------- | --------------- |
+| `fork() + exec()` | 传统进程创建方式  | 可靠，适用于 Shell     | `fork()` 开销大 |
+| `posix_spawn()`   | 嵌入式/轻量级应用 | 避免 `fork()` 复制数据 | 兼容性较低      |
+| `clone()`         | Linux 容器/线程   | 共享资源，高效         | 仅适用于 Linux  |
+
+🚀 **经典 Shell 仍然使用 `fork() + exec()`，但现代操作系统在高性能场景下采用 `posix_spawn()` 或 `clone()` 来优化进程管理！**
