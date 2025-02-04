@@ -2274,6 +2274,163 @@ Use the man command for information on other programs.
 > exit
 ```
 
+
+
+这里是优化后的 `lsh_read_line` 和 `lsh_split_line`，支持 **引号（quoting）** 和 **反斜杠转义（backslash escaping）**，使得用户可以正确输入带空格的参数，例如：
+
+```
+echo "Hello World" test\ file.txt
+```
+
+### 主要改进：
+
+1. **支持双引号和单引号**（"..." 或 '...'）：
+
+   - 在引号内的空格不会被视作分隔符。
+   - 引号内部的转义字符 `\"` 和 `\'` 仍然能正常工作。
+
+2. **支持反斜杠转义**（`\`）：
+
+   - 反斜杠可以转义空格、引号、反斜杠本身，例如：
+
+     ```
+     echo \"Hello\ World\"
+     ```
+
+     解析为：
+
+     ```
+     ["echo", "\"Hello World\""]
+     ```
+
+3. **提升 `lsh_read_line` 的鲁棒性**：
+
+   - 允许行末自动截取换行符 `\n`，保证不影响解析。
+
+优化后的代码如下：
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+
+#define LSH_TOK_BUFSIZE 64
+#define LSH_TOK_DELIM " \t\r\n\a"
+
+char *lsh_read_line(void) {
+    char *line = NULL;
+    ssize_t bufsize = 0;
+
+    if (getline(&line, &bufsize, stdin) == -1) {
+        if (feof(stdin)) {
+            exit(EXIT_SUCCESS);
+        } else {
+            perror("readline");
+            exit(EXIT_FAILURE);
+        }
+    }
+    return line;
+}
+
+char **lsh_split_line(char *line) {
+    int bufsize = LSH_TOK_BUFSIZE, position = 0;
+    char **tokens = malloc(bufsize * sizeof(char *));
+    if (!tokens) {
+        fprintf(stderr, "lsh: allocation error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    char *token = malloc(strlen(line) + 1);  // 用于存放解析出的 token
+    if (!token) {
+        fprintf(stderr, "lsh: allocation error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int i = 0, j = 0;
+    bool in_single_quote = false, in_double_quote = false, escaping = false;
+
+    while (line[i] != '\0') {
+        char c = line[i];
+        if (escaping) {  // 处理转义字符
+            token[j++] = c;
+            escaping = false;
+        } else if (c == '\\') {  // 遇到反斜杠，开启转义模式
+            escaping = true;
+        } else if (c == '"') {  // 处理双引号
+            if (in_single_quote) {
+                token[j++] = c;  // 引号内的引号视为普通字符
+            } else {
+                in_double_quote = !in_double_quote;
+            }
+        } else if (c == '\'') {  // 处理单引号
+            if (in_double_quote) {
+                token[j++] = c;
+            } else {
+                in_single_quote = !in_single_quote;
+            }
+        } else if (strchr(LSH_TOK_DELIM, c) && !in_single_quote && !in_double_quote) {
+            if (j > 0) {  // 遇到空格分隔符，但 token 非空，存入 tokens 数组
+                token[j] = '\0';
+                tokens[position++] = strdup(token);
+                j = 0;
+                if (position >= bufsize) {  // 重新分配空间
+                    bufsize += LSH_TOK_BUFSIZE;
+                    tokens = realloc(tokens, bufsize * sizeof(char *));
+                    if (!tokens) {
+                        fprintf(stderr, "lsh: allocation error\n");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+            }
+        } else {
+            token[j++] = c;
+        }
+        i++;
+    }
+
+    if (j > 0) {  // 处理最后一个 token
+        token[j] = '\0';
+        tokens[position++] = strdup(token);
+    }
+
+    tokens[position] = NULL;  // 结束标记
+    free(token);
+    return tokens;
+}
+```
+
+------
+
+### **测试用例**
+
+#### **输入**
+
+```
+echo "Hello World" 'This is a test' file\ name.txt
+```
+
+#### **解析结果**
+
+```
+["echo", "Hello World", "This is a test", "file name.txt"]
+```
+
+------
+
+### **改进点总结**
+
+✅ **支持引号**（`"` 和 `'`）内的内容不会被空格拆分。
+ ✅ **支持反斜杠转义**，如 `file\ name.txt` 解析为 `"file name.txt"`。
+ ✅ **自动扩展 token 数组，防止溢出**。
+ ✅ **代码更清晰、易维护**，便于扩展新功能。
+
+这样，`lsh_split_line` 现在能够正确解析更复杂的命令行输入，符合 **“Only whitespace separating arguments, with quoting and backslash escaping”** 的要求！ 🚀
+
+
+
+
+
 ## 后记
 
 2025年2月4日完成学习。
