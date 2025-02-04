@@ -4,6 +4,10 @@
 
 
 
+## 前言
+
+本文是学习笔记，读者可参见原文。
+
 Link: [https://brennan.io/2015/01/16/write-a-shell-in-c/](https://brennan.io/2015/01/16/write-a-shell-in-c/)
 
 Github: [https://github.com/brenns10/lsh](https://github.com/brenns10/lsh)
@@ -1192,7 +1196,145 @@ int lsh_launch(char **args)
 }
 ```
 
+### **Explanation of `lsh_launch()` Function**
 
+The function `lsh_launch()` is responsible for **creating a new process and executing a command** in a simple shell implementation.
+
+### **1. Overview**
+
+- It **forks a new child process** to execute the command.
+- The **child process replaces itself with the given command** using `execvp()`.
+- The **parent process waits** for the child to finish using `waitpid()`.
+- If forking fails, it prints an error message.
+
+------
+
+### **2. Code Breakdown**
+
+```c
+int lsh_launch(char **args)
+{
+  pid_t pid, wpid;
+  int status;
+```
+
+- `pid_t pid`: Stores the **process ID** of the newly created process.
+- `pid_t wpid`: Stores the **process ID returned by `waitpid()`**.
+- `int status`: Stores the **exit status of the child process**.
+
+------
+
+### **Step 1: Create a New Process (`fork()`)**
+
+```c
+  pid = fork();
+  if (pid == 0) {
+```
+
+- `fork()` creates a **child process**, which is an exact copy of the parent process.
+- `pid == 0` **means we are in the child process**.
+
+------
+
+### **Step 2: Execute the Command (`execvp()`)**
+
+```c
+    if (execvp(args[0], args) == -1) {
+      perror("lsh");
+    }
+    exit(EXIT_FAILURE);
+```
+
+- `execvp(args[0], args)`:
+  - `args[0]` is the **command to execute** (e.g., `"ls"`).
+  - `args` is an **array of arguments** (e.g., `{ "ls", "-l", NULL }`).
+  - **If successful, `execvp()` replaces the child process with the new command**.
+  - **If `execvp()` fails, it returns `-1`**, and `perror("lsh")` prints an error message.
+- `exit(EXIT_FAILURE);`:
+  - If `execvp()` fails, **the child process exits with an error status**.
+
+------
+
+### **Step 3: Error Handling for `fork()`**
+
+```c
+  } else if (pid < 0) {
+    perror("lsh");
+  }
+```
+
+- **If `pid < 0`, `fork()` failed**, meaning the system couldn’t create a new process.
+- `perror("lsh")` prints an error message.
+
+------
+
+### **Step 4: Parent Process Waits for Child**
+
+```c
+  else {
+    do {
+      wpid = waitpid(pid, &status, WUNTRACED);
+    } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+  }
+```
+
+- `waitpid(pid, &status, WUNTRACED)`:
+  - `waitpid()` **waits for the child process to finish**.
+  - `WUNTRACED` ensures the parent can catch stopped child processes.
+- Loop condition:
+  - `!WIFEXITED(status) && !WIFSIGNALED(status)`:
+    - **`WIFEXITED(status)`**: Checks if the child exited normally.
+    - **`WIFSIGNALED(status)`**: Checks if the child was terminated by a signal.
+  - The loop ensures the parent **keeps waiting until the child terminates**.
+
+------
+
+### **3. Example Execution**
+
+Let's say the user types:`ls -l`
+
+In memory:
+
+```c
+args = { "ls", "-l", NULL };
+```
+
+Execution Steps:
+
+1. `fork()` creates a new process:
+   - Parent process: **`pid > 0`**, waits for child.
+   - Child process: **`pid == 0`**, executes `execvp("ls", args)`.
+2. Child process replaces itself with `ls -l`:
+   - If successful: Child process runs `ls -l` and terminates.
+   - If failed: Prints an error and exits.
+3. **Parent process waits** for the child using `waitpid()`.
+4. **After `ls -l` finishes**, `waitpid()` returns, and `lsh_launch()` completes.
+
+------
+
+### **4. Output Example**
+
+```sh
+$ ls -l
+total 12
+-rwxr-xr-x 1 user user  4096 Feb 10 12:00 file1.txt
+-rwxr-xr-x 1 user user  4096 Feb 10 12:00 file2.txt
+```
+
+- `ls -l` executes in the child process.
+- Parent process **waits until `ls -l` completes**.
+- Once `ls -l` finishes, `lsh_launch()` returns.
+
+------
+
+### **5. Summary**
+
+✅ **`fork()` creates a new child process** to execute commands.
+ ✅ **`execvp()` replaces the child process with the actual command execution**.
+ ✅ **`waitpid()` ensures the parent waits until the child finishes**.
+ ✅ **If `execvp()` fails, an error message is displayed**.
+
+🚀 **This function is fundamental to building a simple shell, allowing users to execute external commands!**
 
 
 
@@ -1426,3 +1568,715 @@ int main() {
 | `clone()`         | Linux 容器/线程   | 共享资源，高效         | 仅适用于 Linux  |
 
 🚀 **经典 Shell 仍然使用 `fork() + exec()`，但现代操作系统在高性能场景下采用 `posix_spawn()` 或 `clone()` 来优化进程管理！**
+
+
+
+
+
+## Shell Builtins
+
+### **解释：为什么某些命令必须由 Shell 内部执行？**
+
+在 `lsh_loop()` 中，它调用 `lsh_execute()` 而不是 `lsh_launch()`，这并不是偶然的设计，而是有意为之。我们之前的 `lsh_launch()` 主要用于**执行外部程序**（即调用 `fork()` + `execvp()` 启动新进程）。但并**不是所有 Shell 命令都可以通过创建新进程来执行**，有些命令必须由 Shell **自身** 执行，而不是创建一个子进程来完成。以下是几个典型的例子：
+
+------
+
+### **1. 为什么 `cd` 命令必须由 Shell 内部执行？**
+
+通常，我们使用 `cd` 命令来切换当前工作目录，例如：
+
+```sh
+cd /home/user
+```
+
+但如果 `cd` 被实现为一个**外部程序**，它将无法真正改变 Shell 进程的目录。**原因如下：**
+
+- **进程的当前目录是进程的私有属性**，每个进程都有自己的 `cwd`（current working directory）。
+- 如果 `cd` 是一个外部程序，它会在子进程中运行：
+  1. `fork()` 创建一个子进程。
+  2. 子进程调用 `chdir("/home/user")` 更改目录。
+  3. 子进程**终止**，但 Shell 仍在原来的目录中。
+
+因此，**Shell 本身必须调用 `chdir()`，这样它的进程环境才能真正改变**。
+
+### **示例**
+
+错误的做法（如果 `cd` 是外部程序）：
+
+```sh
+$ cd /home/user   # 这个 `cd` 在子进程中执行
+$ pwd             # 仍然是原来的目录，没有改变！
+```
+
+正确的做法（Shell 内部执行）：
+
+```sh
+$ cd /home/user   # Shell 进程自己调用 `chdir()`
+$ pwd             # 目录成功改变！
+```
+
+------
+
+### **2. 为什么 `exit` 命令必须由 Shell 内部执行？**
+
+类似地，`exit` 不能作为一个外部程序来执行：
+
+- **如果 `exit` 是外部程序**：
+  1. `fork()` 创建子进程。
+  2. 子进程运行 `exit`，终止自己。
+  3. **Shell 进程仍然活着**，不会退出！
+- **但正确的行为应该是 Shell 进程自己调用 `exit()`，从而终止整个 Shell 进程**。
+
+### **示例**
+
+错误的做法（如果 `exit` 是外部程序）：
+
+```sh
+$ exit   # 退出的只是子进程，Shell 依然运行
+$        # 仍然可以继续输入命令
+```
+
+正确的做法（Shell 内部执行）：
+
+```sh
+$ exit   # 直接退出 Shell
+```
+
+------
+
+### **3. 为什么某些 Shell 配置命令必须是内建的？**
+
+很多 Shell 需要加载配置文件（如 `~/.bashrc`）来调整自己的行为。例如：
+
+```sh
+alias ll='ls -l'
+set -o vi
+export PATH=$PATH:/usr/local/bin
+```
+
+这些命令改变了 **Shell 本身的环境**，所以它们不能作为外部程序运行：
+
+- **`alias`**：定义别名，改变 Shell 解析命令的方式。
+- **`set -o`**：修改 Shell 选项，影响输入行为。
+- **`export`**：修改环境变量，影响后续进程。
+
+如果这些命令被放在子进程中执行，它们的**影响不会传回到 Shell 进程**，所以必须由 Shell 内部执行。
+
+------
+
+### **4. 总结**
+
+| 命令     | 是否可以作为外部程序？ | 必须由 Shell 内部执行的原因                     |
+| -------- | ---------------------- | ----------------------------------------------- |
+| `cd`     | ❌ 不行                 | 进程的 `cwd` 是私有的，子进程修改不会影响 Shell |
+| `exit`   | ❌ 不行                 | 退出的是子进程，Shell 进程仍然运行              |
+| `alias`  | ❌ 不行                 | 影响 Shell 解析命令的方式                       |
+| `export` | ❌ 不行                 | 影响 Shell 环境变量，子进程修改无法影响 Shell   |
+| `ls`     | ✅ 可以                 | 只是列出文件信息，没有修改 Shell 状态           |
+
+### **🔹 关键结论**
+
+✅ **外部命令**（如 `ls`, `grep`, `ping`）可以通过 `fork()` + `execvp()` 运行，因为它们**不会修改 Shell 本身的行为**。
+ ✅ **内建命令**（如 `cd`, `exit`, `export`, `alias`）必须由 Shell 进程自身执行，否则它们的作用不会生效！
+
+🚀 **这就是为什么 Shell 需要 `lsh_execute()` 来区分内建命令和外部命令，而不是直接调用 `lsh_launch()`！**
+
+
+
+
+
+```c
+/*
+  Function Declarations for builtin shell commands:
+ */
+int lsh_cd(char **args);
+int lsh_help(char **args);
+int lsh_exit(char **args);
+
+/*
+  List of builtin commands, followed by their corresponding functions.
+ */
+char *builtin_str[] = {
+  "cd",
+  "help",
+  "exit"
+};
+
+int (*builtin_func[]) (char **) = {
+  &lsh_cd,
+  &lsh_help,
+  &lsh_exit
+};
+
+int lsh_num_builtins() {
+  return sizeof(builtin_str) / sizeof(char *);
+}
+
+/*
+  Builtin function implementations.
+*/
+int lsh_cd(char **args)
+{
+  if (args[1] == NULL) {
+    fprintf(stderr, "lsh: expected argument to \"cd\"\n");
+  } else {
+    if (chdir(args[1]) != 0) {
+      perror("lsh");
+    }
+  }
+  return 1;
+}
+
+int lsh_help(char **args)
+{
+  int i;
+  printf("Stephen Brennan's LSH\n");
+  printf("Type program names and arguments, and hit enter.\n");
+  printf("The following are built in:\n");
+
+  for (i = 0; i < lsh_num_builtins(); i++) {
+    printf("  %s\n", builtin_str[i]);
+  }
+
+  printf("Use the man command for information on other programs.\n");
+  return 1;
+}
+
+int lsh_exit(char **args)
+{
+  return 0;
+}
+
+```
+
+### **What is `args` and Why Use a Double Pointer (`char \**args`) Instead of a Single Pointer (`char \*args`)?**
+
+------
+
+### **1. Understanding `args` in This Code**
+
+In this code, `args` is a **double pointer (`char \**args`)**, which represents an **array of strings**. It is used to **store command-line arguments** passed to shell built-in functions (`lsh_cd`, `lsh_help`, `lsh_exit`).
+
+### **Example: User Input**
+
+```sh
+cd /home/user
+```
+
+If a user types the above command, it will be **tokenized into an array** like this:
+
+```c
+args = { "cd", "/home/user", NULL };
+```
+
+Here:
+
+- `args[0]` is `"cd"` (the command name).
+- `args[1]` is `"/home/user"` (the argument to `cd`).
+- `args[2]` is `NULL` (to indicate the end of arguments).
+
+------
+
+### **2. Why Use `char \**args` Instead of `char \*args`?**
+
+If we used `char *args`, it would only store a **single string** (a single word), which is **not enough to represent multiple command-line arguments**.
+
+### **2.1 Using `char \*args` (Incorrect)**
+
+```c
+int lsh_cd(char *args) {  // ❌ Incorrect
+  printf("Command: %s\n", args);
+}
+```
+
+This function would **only receive a single string**, such as `"cd"` or `"/home/user"`, but not both.
+
+------
+
+### **2.2 Using `char \**args` (Correct)**
+
+```c
+int lsh_cd(char **args) {  // ✅ Correct
+  printf("Command: %s, Argument: %s\n", args[0], args[1]);
+}
+```
+
+This function receives an **array of strings**, allowing us to handle multiple arguments.
+
+### **Example Breakdown**
+
+Let's assume the user types:
+
+```sh
+cd /home/user
+```
+
+In memory, `args` will be stored as:
+
+```
+args = {
+  "cd",         // args[0]
+  "/home/user", // args[1]
+  NULL          // args[2] (end of arguments)
+};
+```
+
+**Accessing elements:**
+
+```c
+printf("%s\n", args[0]); // Output: cd
+printf("%s\n", args[1]); // Output: /home/user
+```
+
+**Checking for missing arguments:**
+
+```c
+if (args[1] == NULL) {
+  fprintf(stderr, "lsh: expected argument to \"cd\"\n");
+}
+```
+
+If the user only types `cd` without an argument, `args[1] == NULL`, and we print an error message.
+
+------
+
+### **3. How the Shell Uses `char \**args`**
+
+### **3.1 Function Call Flow**
+
+When a user enters a command like:
+
+```sh
+cd /home/user
+```
+
+The shell follows these steps:
+
+1. **Tokenize the input**: `"cd /home/user"` → `{ "cd", "/home/user", NULL }`
+
+2. **Find the corresponding built-in function**: `lsh_cd(args)`
+
+3. Pass `args` as a parameter to `lsh_cd()`:
+
+   ```c
+   lsh_cd({ "cd", "/home/user", NULL });
+   ```
+
+4. **Inside `lsh_cd()`**, we access `args[0]` (`"cd"`) and `args[1]` (`"/home/user"`) to execute `chdir("/home/user")`.
+
+------
+
+### **4. Summary**
+
+✅ **`char \**args` represents an array of strings, allowing multiple command arguments to be passed.**
+ ✅ **Using `char \*args` would only allow a single string, making it impossible to pass multiple arguments.**
+ ✅ **This design allows built-in shell commands (`cd`, `exit`, `help`) to handle multiple arguments efficiently.**
+
+🚀 **Understanding `char \**args` is crucial for building command-line interfaces and shell interpreters!**
+
+
+
+
+
+### **解析 `lsh_num_builtins()`**
+
+```c
+int lsh_num_builtins() {
+  return sizeof(builtin_str) / sizeof(char *);
+}
+```
+
+这个函数的作用是 **计算 Shell 内建命令（builtin commands）的数量**，即 `builtin_str` 数组中的元素个数。
+
+------
+
+### **1. 代码拆解**
+
+### **(1) `sizeof(builtin_str)`**
+
+- `builtin_str` 是一个 **字符串指针数组**（`char *builtin_str[]`）。
+- `sizeof(builtin_str)` 计算整个数组的 **总字节大小**。
+
+### **(2) `sizeof(char \*)`**
+
+- `sizeof(char *)` 计算 **单个指针的大小**（在 64 位系统上通常是 `8` 字节，在 32 位系统上通常是 `4` 字节）。
+
+### **(3) 计算数组长度**
+
+```c
+数组长度 = 数组总大小 / 单个元素大小
+```
+
+- `sizeof(builtin_str) / sizeof(char *)` 计算 `builtin_str` 数组中 **指针的个数**，即内建命令的数量。
+
+------
+
+### **2. 举例分析**
+
+### **示例代码**
+
+```c
+char *builtin_str[] = {
+  "cd",
+  "help",
+  "exit"
+};
+
+printf("%d\n", lsh_num_builtins()); // 结果是多少？
+```
+
+### **计算过程**
+
+假设 **`char \*` 的大小是 8 字节**（64 位系统）：
+
+1. `sizeof(builtin_str) = 8 × 3 = 24` （数组有 3 个 `char *` 指针）。
+2. `sizeof(char *) = 8`（每个指针占 8 字节）。
+3. `lsh_num_builtins() = 24 / 8 = 3`。
+
+最终返回 **3**，表示 **`builtin_str` 里有 3 个内建命令**。
+
+------
+
+### **3. 可能的错误：为什么不能用 `sizeof(builtin_str) / sizeof(builtin_str[0])`？**
+
+在这个代码里，其实 `sizeof(builtin_str) / sizeof(builtin_str[0])` 也是正确的：
+
+```c
+return sizeof(builtin_str) / sizeof(builtin_str[0]);
+```
+
+因为：
+
+- `builtin_str[0]` 是 `char *` 类型，`sizeof(builtin_str[0])` 等于 `sizeof(char *)`，两种写法等效。
+
+但如果 **在函数中传递 `builtin_str` 作为参数**，就不能这么写了。例如：
+
+```c
+int lsh_num_builtins(char *arr[]) {
+  return sizeof(arr) / sizeof(arr[0]);  // ❌ 错误
+}
+```
+
+原因：
+
+- `char *arr[]` 作为函数参数，相当于 `char **arr`，`sizeof(arr)` **只返回指针大小（8 字节）**，而不是数组大小。
+- 解决方法是：**只能在数组本地作用域使用 `sizeof()` 计算长度**，或者传递 `int length` 作为参数。
+
+------
+
+### **4. 结论**
+
+✅ **`lsh_num_builtins()` 计算 `builtin_str` 数组中命令的数量。**
+ ✅ **`sizeof(builtin_str) / sizeof(char \*)` 计算的是 `char \*` 指针的个数。**
+ ✅ **这个方法仅适用于局部定义的数组，不适用于函数参数（因为数组会退化为指针）。**
+
+🚀 **理解 `sizeof()` 的用法，是掌握 C 语言指针和数组管理的关键！**
+
+
+
+
+
+## Putting together builtins and processes
+
+```c
+int lsh_execute(char **args)
+{
+  int i;
+
+  if (args[0] == NULL) {
+    // An empty command was entered.
+    return 1;
+  }
+
+  for (i = 0; i < lsh_num_builtins(); i++) {
+    if (strcmp(args[0], builtin_str[i]) == 0) {
+      return (*builtin_func[i])(args);
+    }
+  }
+
+  return lsh_launch(args);
+}
+```
+
+### **解析 `(\*builtin_func[i])(args)` 中的 `\*` 为什么存在？**
+
+在 `lsh_execute()` 函数中，这一行代码：
+
+```c
+return (*builtin_func[i])(args);
+```
+
+**实际上是调用内建函数（如 `lsh_cd()`、`lsh_help()`、`lsh_exit()`），并将 `args` 作为参数传递给它们。**
+
+------
+
+### **1. 关键数据结构分析**
+
+在代码中，内建命令（built-in commands）的名称和它们对应的函数指针被存储在数组 `builtin_func[]` 中：
+
+```c
+// 内建命令字符串数组
+char *builtin_str[] = {
+  "cd",
+  "help",
+  "exit"
+};
+
+// 对应的函数指针数组
+int (*builtin_func[]) (char **) = {
+  &lsh_cd,
+  &lsh_help,
+  &lsh_exit
+};
+```
+
+- `builtin_str[]` **存储命令名称**（字符串）。
+- `builtin_func[]` **存储函数指针**，它们指向 `lsh_cd()`、`lsh_help()` 和 `lsh_exit()` 这些函数。
+
+#### **关键点**
+
+- `builtin_func[i]` 是一个**指向函数的指针**，即 `int (*builtin_func[i])(char **)`。
+- 由于 `builtin_func[i]` 是一个指针，**所以在调用它时，必须解引用（`\*builtin_func[i]`），才能真正执行该函数。**
+
+------
+
+### **2. 为什么需要 `\*builtin_func[i]`？**
+
+### **(1) `builtin_func[i]` 是函数指针**
+
+在 `builtin_func[]` 中，每个元素的类型是：
+
+```c
+int (*)(char **)
+```
+
+**即 "指向返回 `int` 类型，并接受 `char \**` 作为参数的函数指针"**。
+
+例如：
+
+```c
+builtin_func[0] == &lsh_cd;
+builtin_func[1] == &lsh_help;
+builtin_func[2] == &lsh_exit;
+```
+
+所以：
+
+```c
+builtin_func[i]  // 是一个函数指针
+*builtin_func[i] // 通过解引用，得到真正的函数
+(*builtin_func[i])(args) // 调用该函数，并传递参数 args
+```
+
+### **(2) `\*builtin_func[i]` 实际上等价于 `builtin_func[i]`**
+
+在 C 语言中，**函数指针可以直接调用，而无需解引用**，所以：
+
+```c
+return (*builtin_func[i])(args);
+```
+
+等价于：
+
+```c
+return builtin_func[i](args);
+```
+
+**`\*` 在这里是可选的**，但它的存在使得代码更清晰，**明确地表明 `builtin_func[i]` 是一个指向函数的指针，需要解引用后才能调用**。
+
+------
+
+### **3. `lsh_execute()` 的完整运行逻辑**
+
+当用户输入命令时：
+
+1. `lsh_execute()` 解析 `args[0]`，确定输入的命令名称。
+
+2. 遍历 `builtin_str[]`，查找是否是内建命令。
+
+3. 如果 `args[0]` 匹配 `builtin_str[i]`，则执行对应的内建函数：
+
+   ```c
+   return (*builtin_func[i])(args);
+   ```
+
+4. **如果命令不是内建的，则调用 `lsh_launch(args)` 运行外部程序。**
+
+------
+
+### **4. 示例：用户输入 `cd /home/user`**
+
+假设用户输入：
+
+```sh
+cd /home/user
+```
+
+Shell 解析出：
+
+```c
+args = { "cd", "/home/user", NULL };
+```
+
+运行 `lsh_execute(args)`：
+
+1. `args[0] == "cd"`，匹配 `builtin_str[0]`。
+
+2. 调用 `builtin_func[0]`，即：
+
+   ```c
+   (*builtin_func[0])(args);  // 相当于 lsh_cd(args);
+   ```
+
+3. 进入 `lsh_cd(args)`：
+
+   ```c
+   if (chdir(args[1]) != 0) {
+     perror("lsh");
+   }
+   ```
+
+   这里 `args[1] == "/home/user"`，调用 `chdir("/home/user")`改变当前目录。
+
+------
+
+### **5. 总结**
+
+| 语法                       | 含义                                                  |
+| -------------------------- | ----------------------------------------------------- |
+| `builtin_func[i]`          | 函数指针，指向 `lsh_cd()`、`lsh_help()`、`lsh_exit()` |
+| `*builtin_func[i]`         | 通过解引用，获取真正的函数                            |
+| `(*builtin_func[i])(args)` | 调用该函数，并传递 `args` 作为参数                    |
+
+### **为什么要用 `\*builtin_func[i]`？**
+
+✅ `builtin_func[i]` 是**指向函数的指针**，需要解引用 `*` 才能调用该函数。
+ ✅ `*builtin_func[i]` 和 `builtin_func[i]` 作用相同，**解引用是可选的**，但可以让代码更清晰。
+ ✅ 这样设计的好处是：**可以通过数组索引调用不同的函数，实现命令的动态分配，而不需要使用大量的 `if-else` 语句！**
+
+🚀 **这是一种经典的 "命令调度" 方式，使得 Shell 可以高效地管理内建命令！**
+
+
+
+### 为什么内建函数不同于外部程序？
+
+你可能会问：
+
+> "这样不也是函数调用吗？和外部命令 `ls`、`echo` 这些有什么区别？"
+
+### **(1) 外部命令是由 `fork()` + `execvp()` 运行的**
+
+外部命令（如 `ls`、`grep`）都是**独立的二进制程序**，它们的执行需要：
+
+1. **`fork()` 创建一个新进程**（子进程）。
+
+2. `execvp()` 用新进程执行该命令：
+
+   ```c
+   int lsh_launch(char **args) {
+       pid_t pid = fork();
+       if (pid == 0) {
+           execvp(args[0], args);
+           perror("lsh");
+           exit(EXIT_FAILURE);
+       }
+       waitpid(pid, NULL, 0);
+       return 1;
+   }
+   ```
+
+3. **外部命令运行在子进程中**，不会影响 Shell 本身。
+
+------
+
+### **(2) 内建命令必须由 Shell 本身执行**
+
+但 `cd`、`exit` 这些命令 **不能用 `execvp()` 运行**，因为它们的行为需要修改 **Shell 进程自身**：
+
+#### **✅ `cd` 需要修改 Shell 进程的 `cwd`**
+
+```c
+int lsh_cd(char **args)
+{
+  if (args[1] == NULL) {
+    fprintf(stderr, "lsh: expected argument to \"cd\"\n");
+  } else {
+    if (chdir(args[1]) != 0) {  // ✅ 直接修改当前进程的工作目录
+      perror("lsh");
+    }
+  }
+  return 1;
+}
+```
+
+- `chdir()` 只能修改**当前进程**的目录，而 `fork()` 生成的子进程不会影响 Shell 自身。
+- **如果 `cd` 作为外部命令运行，它只能修改子进程的 `cwd`，不会影响 Shell 进程的目录。**
+
+#### **✅ `exit` 需要终止 Shell 进程**
+
+```c
+int lsh_exit(char **args)
+{
+  return 0;  // 让 `lsh_execute()` 返回 0，Shell 退出
+}
+```
+
+- **如果 `exit` 是外部程序，它只能终止子进程，Shell 进程不会退出！**
+- 但是 **Shell 自己调用 `exit()`，才会真正退出**。
+
+------
+
+### **为什么这样设计对 Shell 有用？**
+
+✅ **可以区分“Shell 内建命令”和“外部程序”**
+ ✅ **内建命令由 Shell 进程直接执行，影响 Shell 本身（如 `cd`、`exit`）。**
+ ✅ **外部命令用 `fork()` + `execvp()` 在子进程中运行，不影响 Shell 本身。**
+ ✅ **用“字符串数组 + 函数指针数组”映射命令，使得内建命令的管理和扩展更容易！**
+
+🚀 **这是一种高效的命令调度方式，是 Unix Shell 设计的经典模式！**
+
+## 不足之处
+
+
+
+>Obviously, this shell isn’t feature-rich. Some of its more glaring omissions are:
+>
+>- Only whitespace separating arguments, no quoting or backslash escaping.
+>- No piping or redirection.
+>- Few standard builtins.
+>- No globbing.
+
+
+
+测试代码：
+
+```c
+gcc -o lsh main.c 
+./lsh 
+> help
+Stephen Brennan's LSH
+Type program names and arguments, and hit enter.
+The following are built in:
+  cd
+  help
+  exit
+Use the man command for information on other programs.
+> cd
+lsh: expected argument to "cd"
+> help
+Stephen Brennan's LSH
+Type program names and arguments, and hit enter.
+The following are built in:
+  cd
+  help
+  exit
+Use the man command for information on other programs.
+> exit
+```
+
+## 后记
+
+2025年2月4日完成学习。
+
+感谢原作者：Stephen Brennan
+
