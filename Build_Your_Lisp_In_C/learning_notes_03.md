@@ -812,3 +812,773 @@ lispy> list a b x y
 
 # Functions • Chapter 12
 
+
+
+
+
+```c
+lenv* lenv_copy(lenv* e) {
+  lenv* n = malloc(sizeof(lenv));
+  n->par = e->par;
+  n->count = e->count;
+  n->syms = malloc(sizeof(char*) * n->count);
+  n->vals = malloc(sizeof(lval*) * n->count);
+  for (int i = 0; i < e->count; i++) {
+    n->syms[i] = malloc(strlen(e->syms[i]) + 1);
+    strcpy(n->syms[i], e->syms[i]);
+    n->vals[i] = lval_copy(e->vals[i]);
+  }
+  return n;
+}
+```
+
+`strcpy` 函数的原型通常写作 `char *strcpy(char *dest, const char *src);`，表示**把 `src` 指向的字符串复制到 `dest` 指向的内存**中，并返回 `dest`。
+
+在你的代码里：
+
+```c
+n->syms[i] = malloc(strlen(e->syms[i]) + 1);
+strcpy(n->syms[i], e->syms[i]);
+```
+
+- `n->syms[i]` 是目标（dest）地址：一块刚分配好的可以容纳 `e->syms[i]` 字符串（含结尾 `\0`）的内存。
+- `e->syms[i]` 是源（src）字符串。
+- `strcpy(n->syms[i], e->syms[i])` 表示把 `e->syms[i]` 中的所有字符（含终止符 `\0`）复制到 `n->syms[i]` 指向的空间里。
+
+所以这里就是“第二个参数复制到第一个参数”这一逻辑。
+
+This function, `lval_call`, is responsible for **calling a Lisp function** in your implementation. It correctly handles both **built-in functions** and **user-defined functions**, including **partial function application (currying)** when not all arguments are provided. Let's go through it step by step.
+
+
+
+
+
+```c
+lval* lval_call(lenv* e, lval* f, lval* a) {
+
+  /* If Builtin then simply apply that */
+  if (f->builtin) { return f->builtin(e, a); }
+
+  /* Record Argument Counts */
+  int given = a->count;
+  int total = f->formals->count;
+
+  /* While arguments still remain to be processed */
+  while (a->count) {
+
+    /* If we've ran out of formal arguments to bind */
+    if (f->formals->count == 0) {
+      lval_del(a); return lval_err(
+        "Function passed too many arguments. "
+        "Got %i, Expected %i.", given, total);
+    }
+
+    /* Pop the first symbol from the formals */
+    lval* sym = lval_pop(f->formals, 0);
+
+    /* Pop the next argument from the list */
+    lval* val = lval_pop(a, 0);
+
+    /* Bind a copy into the function's environment */
+    lenv_put(f->env, sym, val);
+
+    /* Delete symbol and value */
+    lval_del(sym); lval_del(val);
+  }
+
+  /* Argument list is now bound so can be cleaned up */
+  lval_del(a);
+
+  /* If all formals have been bound evaluate */
+  if (f->formals->count == 0) {
+
+    /* Set environment parent to evaluation environment */
+    f->env->par = e;
+
+    /* Evaluate and return */
+    return builtin_eval(
+      f->env, lval_add(lval_sexpr(), lval_copy(f->body)));
+  } else {
+    /* Otherwise return partially evaluated function */
+    return lval_copy(f);
+  }
+
+}
+```
+
+
+
+
+
+
+
+------
+
+## **1. Understanding the Inputs and Structure**
+
+```c
+lval* lval_call(lenv* e, lval* f, lval* a)
+```
+
+- **`lenv\* e`** → The current environment in which the function is called.
+- **`lval\* f`** → The function being called (either built-in or user-defined).
+- **`lval\* a`** → The arguments passed to this function.
+
+### **Overall Execution Flow**
+
+1. If `f` is a **built-in function**, call it immediately.
+2. If `f` is a **user-defined function**, start binding arguments one by one.
+3. If too many arguments are provided, return an error.
+4. If all arguments are provided, evaluate the function body.
+5. If not all arguments are provided, return a **partially evaluated function** (currying).
+
+------
+
+## **2. Handling Built-in Functions**
+
+```c
+/* If Builtin then simply apply that */
+if (f->builtin) { return f->builtin(e, a); }
+```
+
+- If `f` is a built-in function (like `+`, `list`, `def`), it contains a pointer to the corresponding C function (`f->builtin`).
+- Simply invoke that function and return the result.
+
+------
+
+## **3. Preparing for User-defined Functions**
+
+```c
+/* Record Argument Counts */
+int given = a->count;
+int total = f->formals->count;
+```
+
+- `given` stores the **number of arguments actually provided**.
+- `total` stores the **number of parameters expected** by the function.
+
+These are later used to check if we have too many or too few arguments.
+
+------
+
+## **4. Iterating Through Arguments**
+
+```c
+/* While arguments still remain to be processed */
+while (a->count) {
+```
+
+- This loop processes **all provided arguments one by one**, binding them to formal parameters.
+
+------
+
+### **4.1 Handling Excess Arguments**
+
+```c
+/* If we've ran out of formal arguments to bind */
+if (f->formals->count == 0) {
+  lval_del(a); return lval_err(
+    "Function passed too many arguments. "
+    "Got %i, Expected %i.", given, total);
+}
+```
+
+- If there are **more arguments provided than expected**, return an error.
+- The function **immediately terminates** in this case.
+
+------
+
+### **4.2 Binding Arguments to Parameters**
+
+```c
+/* Pop the first symbol from the formals */
+lval* sym = lval_pop(f->formals, 0);
+
+/* Pop the next argument from the list */
+lval* val = lval_pop(a, 0);
+```
+
+- `lval_pop(f->formals, 0)` extracts the first **parameter name** from `formals`.
+- `lval_pop(a, 0)` extracts the next **argument** from the provided arguments.
+
+#### **Example:**
+
+```lisp
+(def {add} (lambda {a b} (+ a b)))
+(add 10)
+```
+
+- `formals = {a, b}` → extract `a`
+- `a = {10}` → extract `10`
+- Now, `a` is bound to `10`, but `b` is still unbound.
+
+------
+
+### **4.3 Storing Bound Values**
+
+```c
+/* Bind a copy into the function's environment */
+lenv_put(f->env, sym, val);
+```
+
+- This adds the variable binding `{sym -> val}` to the function's **own environment (`f->env`)**.
+- Now, when the function body is evaluated, it will recognize `sym` as `val`.
+
+------
+
+### **4.4 Cleaning Up**
+
+```c
+/* Delete symbol and value */
+lval_del(sym); lval_del(val);
+```
+
+- Since the **symbol** (variable name) and **value** (argument) have been stored in the environment, we can free their copies.
+
+------
+
+## **5. Checking If All Arguments Are Bound**
+
+```c
+/* Argument list is now bound so can be cleaned up */
+lval_del(a);
+```
+
+- The provided argument list (`a`) has now been fully processed, so it is no longer needed.
+
+------
+
+### **5.1 If All Arguments Are Provided, Evaluate**
+
+```c
+/* If all formals have been bound evaluate */
+if (f->formals->count == 0) {
+  /* Set environment parent to evaluation environment */
+  f->env->par = e;
+
+  /* Evaluate and return */
+  return builtin_eval(
+    f->env, lval_add(lval_sexpr(), lval_copy(f->body)));
+}
+```
+
+- If there are **no unbound parameters left**, this means the function is **fully applied**.
+- The function’s environment (`f->env`) is linked to the **current environment** (`e`).
+- It then evaluates the function body (`f->body`) using the function’s environment and returns the result.
+
+#### **Example:**
+
+```lisp
+(add 10 20)  ;; Here both "a" and "b" are bound, so the function evaluates.
+```
+
+------
+
+### **5.2 If Not All Arguments Are Provided, Return a Partially Applied Function**
+
+```c
+else {
+  /* Otherwise return partially evaluated function */
+  return lval_copy(f);
+}
+```
+
+- If some arguments **remain unbound**, return the function **with some arguments already filled**.
+- This allows **partial application** (currying).
+
+#### **Example:**
+
+```lisp
+(def {add5} (add 5)) ;; Partially applied function
+(add5 10) ;; Returns 15
+```
+
+- `add5` is a function with **one argument bound (`a=5`)**.
+- When `add5 10` is called, `b=10` gets filled in, and evaluation happens.
+
+------
+
+## **6. Summary**
+
+This function supports **both normal function calls and partial application**:
+
+| Case                       | Behavior                                  |
+| -------------------------- | ----------------------------------------- |
+| `f` is a built-in function | Directly call it and return result.       |
+| Too many arguments         | Return an error.                          |
+| All arguments provided     | Evaluate function body and return result. |
+| Some arguments missing     | Return a partially applied function.      |
+
+### **Key Features:**
+
+1. **Binding arguments one-by-one** to the function’s environment.
+2. **Error handling for too many arguments**.
+3. **Full function application** when all arguments are present.
+4. **Partial function application** (currying) when only some arguments are provided.
+
+### **Pac-Man Analogy**
+
+- The function **eats arguments one by one** from left to right.
+- If it gets enough arguments, **it evaluates and “explodes” into a result**.
+- If not, **it returns itself in a more “filled” form**, waiting for more arguments.
+
+This approach makes the language more **flexible and expressive**, allowing **partial application and function composition**, which are key features in functional programming languages like Lisp.
+
+
+
+## Function Definition
+
+
+
+Functions that can define functions. That is certainly something we could never do in C. How cool is that!
+
+```py
+\ {args body} {def (head args) (\ (tail args) body)}
+def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
+fun {add-together x y} {+ x y}
+```
+
+
+
+这一部分的核心思想是**用一个函数（`fun`）来定义函数**，从而简化 `lambda` 的语法，使得函数定义更直观、易读。相当于在你的 Lisp 语言中，引入了一种 **基于 `lambda` 的语法糖**，来让函数定义更简单。
+
+------
+
+## **1. 传统 `lambda` 定义方式**
+
+在你的 Lisp 解释器中，之前定义函数的方式如下：
+
+```lisp
+def {add-together} (\ {x y} {+ x y})
+```
+
+- `\ {x y} {+ x y}` 是一个 `lambda`，表示接受参数 `x` 和 `y`，然后计算 `x + y`。
+- 然后 `def` 把这个 `lambda` 绑定到 `add-together`，从而创建了一个函数。
+
+虽然这很灵活，但写起来较繁琐，尤其是 `\ {args} {body}` 这样的结构，对初学者来说可能有点不直观。
+
+------
+
+## **2. 设计 `fun` 语法糖**
+
+### **目标**
+
+我们想让用户写的代码从：
+
+```lisp
+def {add-together} (\ {x y} {+ x y})
+```
+
+变成：
+
+```lisp
+fun {add-together x y} {+ x y}
+```
+
+这就像是大多数现代编程语言（Python, JavaScript）里的 `def` 语法：
+
+```python
+def add_together(x, y):
+    return x + y
+```
+
+**简化 `lambda` 的定义方式**，让代码更优雅。
+
+------
+
+## **3. `fun` 的定义**
+
+```lisp
+def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
+```
+
+这段 Lisp 代码定义了 `fun` 这个新函数，它的作用是**解析函数定义的格式，并转换为标准的 `lambda` 形式**。
+
+### **拆解分析**
+
+#### **(1) `fun` 需要两个参数**
+
+- `{args}`：函数名+参数列表（例如 `{add-together x y}`）。
+- `{body}`：函数体（例如 `{+ x y}`）。
+
+#### **(2) `head args` 取出 `args` 的第一个元素**
+
+```lisp
+(head args)
+```
+
+- `head` 函数的作用是获取列表的第一个元素。
+- `head {add-together x y}` 结果是 `add-together`，即 **函数名**。
+
+#### **(3) `tail args` 取出 `args` 的其余部分**
+
+```lisp
+(tail args)
+```
+
+- `tail` 函数的作用是去掉列表的第一个元素，返回剩余部分。
+- `tail {add-together x y}` 结果是 `{x y}`，即 **参数列表**。
+
+#### **(4) 组合成 `lambda` 并绑定**
+
+```lisp
+def (head args) (\ (tail args) body)
+```
+
+等价于：
+
+```lisp
+def add-together (\ {x y} {+ x y})
+```
+
+这就是标准的 `lambda` 方式。
+
+------
+
+## **4. 使用 `fun` 定义函数**
+
+```lisp
+fun {add-together x y} {+ x y}
+```
+
+这个表达式被 `fun` 处理后，等价于：
+
+```lisp
+def add-together (\ {x y} {+ x y})
+```
+
+然后 `add-together` 变成了一个可调用的函数。
+
+### **调用**
+
+```lisp
+add-together 10 20
+```
+
+- 解释器会解析 `add-together 10 20`。
+- 发现 `add-together` 是一个 `lambda`，绑定了 `{x y}` → `{+ x y}`。
+- 计算 `+ 10 20`，返回 `30`。
+
+------
+
+## **5. 总结**
+
+1. **原理**
+
+   - `fun {args body}` 解析 `args`，取出函数名和参数列表，再构造 `lambda` 并用 `def` 绑定。
+   - 本质上是 **`def` 和 `lambda` 的组合**，让函数定义更简洁。
+
+2. **转换过程**
+
+   ```lisp
+   fun {add-together x y} {+ x y}
+   ```
+
+   **等价于**
+
+   ```lisp
+   def add-together (\ {x y} {+ x y})
+   ```
+
+   **等价于**
+
+   ```c
+   int add_together(int x, int y) {
+       return x + y;
+   }
+   ```
+
+3. **作用**
+
+   - 让 Lisp 代码更简洁易读。
+   - 提供了一种**语法糖**，使得函数定义看起来更像 Python/JavaScript 里的 `def` 语法。
+
+**这就是 Lisp 的强大之处：你可以**用 Lisp 代码扩展 Lisp 自己的语法**，实现更高阶的抽象，而不需要修改解释器本身！**
+
+
+
+## Currying
+
+
+
+We can define a function `unpack` that does this. It takes as input some function and some list and appends the function to the front of the list, before evaluating it.
+
+```
+fun {unpack f xs} {eval (join (list f) xs)}
+```
+
+In some situations we might be faced with the opposite dilemma. We may have a function that takes as input some list, but we wish to call it using variable arguments. In this case the solution is even simpler. We use the fact that our `&` syntax for variable arguments packs up variable arguments into a list for us.
+
+```
+fun {pack f & xs} {f xs}
+```
+
+In some languages this is called *currying* and *uncurrying* respectively. This is named after *Haskell Curry* and unfortunately has nothing to do with our favourite spicy food.
+
+
+
+这段文字介绍了 **Currying（柯里化）** 和 **Uncurrying（反柯里化）** 的概念，并且用 Lisp 代码实现了它们。核心思想是：
+
+1. **Currying（柯里化）**：将 **一组参数**（列表 `{5 6 7}`）传递给函数，使其按照期望的方式求值。
+2. **Uncurrying（反柯里化）**：把 **分开的参数**（`5 6 7`）打包成一个列表，并传递给只接受单个列表的函数。
+
+在 Lisp 语言的环境下，这两个概念的实现分别是 **`unpack`** 和 **`pack`**。
+
+------
+
+### **1. 为什么需要 Currying 和 Uncurrying？**
+
+在这个 Lisp 解释器中，`+` 这样的函数可以接受**任意数量的参数**：
+
+```lisp
++ 5 6 7  ;; 结果是 18
+```
+
+但如果参数是 **以列表的形式存储的**，例如：
+
+```lisp
+{5 6 7}
+```
+
+那么直接调用 `+ {5 6 7}` 会出错，因为 `+` 期望的是一组单独的参数，而不是列表。
+
+为了解决这个问题，我们需要：
+
+- **Currying**（柯里化）: **把 `+` 放在列表的前面**，让它正确求值。
+- **Uncurrying**（反柯里化）: **把分散的参数合并成列表**，传递给一个需要列表的函数。
+
+------
+
+### **2. `unpack` 函数（Currying）**
+
+```lisp
+fun {unpack f xs} {eval (join (list f) xs)}
+```
+
+**解析：**
+
+1. **参数**
+   - `f`：要调用的函数（如 `+`）。
+   - `xs`：一个列表，里面存放参数（如 `{5 6 7}`）。
+2. **工作原理**
+   - `list f`：创建一个包含 `f` 的列表，即 `{+}`。
+   - `join (list f) xs`：将 `f` 和 `xs` 连接起来，变成 `{+ 5 6 7}`。
+   - `eval (...)`：执行 `{+ 5 6 7}`，得到 `18`。
+
+**示例：**
+
+```lisp
+curry + {5 6 7}
+```
+
+等价于：
+
+```lisp
+eval (join (list +) {5 6 7})
+```
+
+进一步展开：
+
+```lisp
+eval {+ 5 6 7}  ;; 直接执行 + 5 6 7
+```
+
+最终结果是 `18`。
+
+------
+
+### **3. `pack` 函数（Uncurrying）**
+
+```lisp
+fun {pack f & xs} {f xs}
+```
+
+**解析：**
+
+1. **参数**
+   - `f`：要调用的函数。
+   - `& xs`：使用 `&` 让 `xs` 变成**一个列表**，即所有剩余参数都会打包进 `xs`。
+2. **工作原理**
+   - `xs` 会自动打包所有变量参数。
+   - 直接调用 `f xs`，即把**整个列表**作为一个单一参数传递。
+
+**示例：**
+
+```lisp
+uncurry head 5 6 7
+```
+
+等价于：
+
+```lisp
+head {5 6 7}
+```
+
+最终 `head {5 6 7}` 返回 `{5}`，因为 `head` 只取列表的第一个元素。
+
+------
+
+### **4. `curry` 和 `uncurry` 的简化**
+
+```lisp
+def {uncurry} pack
+()
+def {curry} unpack
+()
+```
+
+- `curry` **等价于** `unpack`（将列表变成函数调用）。
+- `uncurry` **等价于** `pack`（将多个参数打包成列表）。
+
+这样我们可以直接使用 `curry` 和 `uncurry` 来转换函数的调用方式。
+
+------
+
+### **5. 进一步理解 `curry` 和 `uncurry`**
+
+```lisp
+lispy> def {add-uncurried} +
+()
+lispy> def {add-curried} (curry +)
+()
+```
+
+- `add-uncurried` 是直接绑定到 `+`，可以正常使用：
+
+  ```lisp
+  add-uncurried 5 6 7  ;; 结果是 18
+  ```
+
+- `add-curried` 绑定的是 **柯里化版本的 `+`**：
+
+  ```lisp
+  add-curried {5 6 7}  ;; 结果也是 18
+  ```
+
+  因为 `curry + {5 6 7}` 会转换成 `{+ 5 6 7}`，然后求值。
+
+------
+
+### **6. 总结**
+
+#### **1. Currying（柯里化）**
+
+将一个列表参数展开成**单独的参数**：
+
+```lisp
+curry + {5 6 7}  ;; → {+ 5 6 7} → 18
+```
+
+**等价于**
+
+```lisp
+fun {unpack f xs} {eval (join (list f) xs)}
+```
+
+用法：
+
+```lisp
+def {curry} unpack
+```
+
+#### **2. Uncurrying（反柯里化）**
+
+将**多个参数**合并成一个列表：
+
+```lisp
+uncurry head 5 6 7  ;; → head {5 6 7} → {5}
+```
+
+**等价于**
+
+```lisp
+fun {pack f & xs} {f xs}
+```
+
+用法：
+
+```lisp
+def {uncurry} pack
+```
+
+#### **3. 作用**
+
+- **Currying** 允许我们**传入整个参数列表**来调用函数。
+- **Uncurrying** 允许我们**传入单独的参数**并自动打包成列表。
+
+#### **4. 应用场景**
+
+- 当你有**一个参数列表**但希望直接调用函数（如 `{5 6 7}` 传给 `+`），使用 `curry`。
+- 当你有**多个参数**但函数需要一个列表（如 `head` 需要 `{5 6 7}`），使用 `uncurry`。
+
+这让 **函数调用更加灵活**，并且为未来的**函数组合、递归计算**等提供了基础。**在很多函数式编程语言（如 Haskell）中，Currying 是默认行为，而这里你用代码自己实现了它！**
+
+
+
+
+
+## 测试代码
+
+
+
+Link: [https://github.com/orangeduck/BuildYourOwnLisp/blob/master/src/functions.c](https://github.com/orangeduck/BuildYourOwnLisp/blob/master/src/functions.c)
+
+```c
+cc -std=c99 -Wall functions.c mpc.c -ledit -o functions   
+./functions 
+Lispy Version 0.0.0.0.8
+Press Ctrl+c to Exit
+
+lispy> def {add-mul} (\ {x y} {+ x (* x y)})
+()
+lispy> add-mul 10 30
+310
+lispy> add-mul 10
+(\ {y} {+ x (* x y)})
+lispy> def {add-mul-ten} {add-mul 10}
+()
+lispy> add-mul-ten 50
+Error: S-Expression starts with incorrect type. Got Q-Expression, Expected Function.
+lispy> add-mul-ten 50
+Error: S-Expression starts with incorrect type. Got Q-Expression, Expected Function.
+lispy> def {add-mul-ten} (add-mul 10)
+()
+lispy> add-mul-ten 50
+510
+lispy> 
+```
+
+
+
+测试currying
+
+```c
+lispy> def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
+()
+lispy> fun {add-together x y} {+ x y}
+()
+lispy> add-together 10 20
+30
+lispy> fun {unpack f xs} {eval (join (list f) xs)}
+()
+lispy> fun {pack f & xs} {f xs}
+()
+lispy> def {uncurry} pack
+()
+lispy> def {curry} unpack
+()
+lispy> curry + {5 6 7}
+18
+lispy> uncurry head 5 6 7
+{5}
+lispy> def {add-uncurried} +
+()
+lispy> def {add-curried} (curry +)
+()
+lispy> add-curried {5 6 7}
+18
+lispy> add-uncurried 5 6 7
+18
+lispy> 
+```
+
