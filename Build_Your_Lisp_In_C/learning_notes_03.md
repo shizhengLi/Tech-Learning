@@ -1582,3 +1582,193 @@ lispy> add-uncurried 5 6 7
 lispy> 
 ```
 
+
+
+## Bonus work
+
+- Define a Lisp function that returns the first element from a list.
+- Define a Lisp function that returns the second element from a list.
+- Define a Lisp function that calls a function with two arguments in reverse order.
+- Define a Lisp function that calls a function with arguments, then passes the result to another function.
+
+
+
+Here are the Lisp functions that accomplish the tasks you specified:
+
+------
+
+### **1. Define a function that returns the first element from a list**
+
+```lisp
+def {first} (\ {xs} {head xs})
+```
+
+**Explanation:**
+
+- This function takes a list `xs`.
+- It calls `head` on `xs`, which returns the first element.
+
+**Example usage:**
+
+```lisp
+first {10 20 30}  ;; Returns 10
+```
+
+------
+
+### **2. Define a function that returns the second element from a list**
+
+```lisp
+def {second} (\ {xs} {head (tail xs)})
+```
+
+**Explanation:**
+
+- `tail xs` removes the first element from the list, leaving `{20 30}`.
+- `head` then extracts the first element from this new list, which is `20`.
+
+**Example usage:**
+
+```lisp
+second {10 20 30}  ;; Returns 20
+```
+
+------
+
+### **3. Define a function that calls a function with two arguments in reverse order**
+
+```lisp
+def {flip} (\ {f x y} {f y x})
+```
+
+**Explanation:**
+
+- Takes a function `f` and two arguments `x` and `y`.
+- Calls `f` with `y` first and `x` second.
+
+**Example usage:**
+
+```lisp
+flip - 10 5  ;; Equivalent to (- 5 10), returns -5
+flip cons 1 {2 3}  ;; Equivalent to (cons {2 3} 1), returns {{2 3} 1}
+```
+
+------
+
+### **4. Define a function that calls a function with arguments, then passes the result to another function**
+
+```lisp
+def {compose} (\ {f g x} {g (f x)})
+```
+
+**Explanation:**
+
+- Calls function `f` with `x`.
+- Passes the result to function `g`.
+
+**Example usage:**
+
+```lisp
+compose second first {{10 20} {30 40}}  ;; second(first({10 20} {30 40})) → second({10 20}) → 20
+```
+
+------
+
+### **Summary**
+
+| Function  | Description                            | Example                                       |
+| --------- | -------------------------------------- | --------------------------------------------- |
+| `first`   | Returns first element of a list        | `first {10 20 30} → 10`                       |
+| `second`  | Returns second element of a list       | `second {10 20 30} → 20`                      |
+| `flip`    | Calls function with reversed arguments | `flip - 10 5 → -5`                            |
+| `compose` | Calls `f`, then passes result to `g`   | `compose second first {{10 20} {30 40}} → 20` |
+
+These functions make your Lisp environment more expressive and functional-programming-friendly! 🚀
+
+
+
+
+
+## Bonus work
+
+Define a `builtin_fun` C function that is equivalent to the Lisp `fun` function.
+
+
+
+To define a **`builtin_fun`** function in C that is equivalent to the Lisp `fun` function, we need to achieve the following behavior:
+
+1. **Accept two arguments:**
+   - `args`: A list that contains `{function_name param1 param2 ...}`
+   - `body`: A list representing the function body.
+2. **Extract the function name (first element of `args`)**.
+3. **Extract the function parameters (all but the first element of `args`)**.
+4. **Create a lambda function with the extracted parameters and body**.
+5. **Define the function in the current environment** using `lenv_put`.
+
+------
+
+### **C Implementation**
+
+```c
+lval* builtin_fun(lenv* e, lval* a) {
+    LASSERT(a, a->count == 2, "Function 'fun' requires exactly two arguments: {args} {body}.");
+    LASSERT(a, a->cell[0]->type == LVAL_QEXPR, "Function 'fun' expects a Q-Expression as the first argument.");
+    LASSERT(a, a->cell[1]->type == LVAL_QEXPR, "Function 'fun' expects a Q-Expression as the second argument.");
+
+    /* Extract function name and parameters */
+    lval* args = lval_pop(a, 0);
+    lval* body = lval_pop(a, 0);
+
+    /* Ensure args is non-empty */
+    LASSERT(a, args->count > 0, "Function 'fun' requires a function name.");
+
+    /* Extract function name (first element of args) */
+    lval* fname = lval_pop(args, 0);
+
+    /* Create the lambda function */
+    lval* lambda = lval_lambda(args, body);
+
+    /* Store it in the environment */
+    lenv_put(e, fname, lambda);
+
+    /* Cleanup */
+    lval_del(fname);
+    lval_del(lambda);
+    lval_del(a);
+
+    return lval_sexpr();
+}
+```
+
+------
+
+### **Explanation**
+
+1. **Ensure proper argument count and types**
+   - `fun` must take exactly **two arguments**.
+   - Both arguments must be **Q-expressions** (`{}`-style lists).
+2. **Extract function name and parameters**
+   - `args = {name param1 param2 ...}`
+   - `body = {expression}`
+3. **Extract function name and parameters**
+   - `fname = head(args)` → First element of `args` (function name).
+   - `args = tail(args)` → Remaining elements (parameters).
+4. **Create a lambda function**
+   - `lval_lambda(args, body)` creates a **lambda expression**.
+5. **Store the function in the environment**
+   - `lenv_put(e, fname, lambda)` binds the function name to the lambda.
+6. **Cleanup and return**
+   - Free memory and return an empty S-expression `()`.
+
+------
+
+### **Usage Example in Lisp**
+
+```lisp
+fun {add x y} {+ x y}  ;; Equivalent to def {add} (\ {x y} {+ x y})
+add 10 20              ;; Returns 30
+```
+
+This implementation allows Lisp users to define functions more easily using the `fun` keyword instead of manually writing `lambda` expressions.
+
+This is a core **meta-programming** feature, as Lisp functions can define other functions dynamically. 🚀
