@@ -1772,3 +1772,10 @@ add 10 20              ;; Returns 30
 This implementation allows Lisp users to define functions more easily using the `fun` keyword instead of manually writing `lambda` expressions.
 
 This is a core **meta-programming** feature, as Lisp functions can define other functions dynamically. 🚀
+
+
+
+
+
+# Conditionals • Chapter 13
+
